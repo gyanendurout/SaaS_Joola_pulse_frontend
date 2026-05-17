@@ -17,6 +17,11 @@ interface Props {
 }
 
 function fmtNum(v: number) { return v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(1)+'K' : v.toString() }
+const _MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+function _daysAgoLabel(n: number): string {
+  const end = new Date(); const start = new Date(end.getTime() - n * 86400000)
+  return `${_MO[start.getMonth()]} ${start.getDate()} – ${_MO[end.getMonth()]} ${end.getDate()}, ${end.getFullYear()}`
+}
 function fmtShort(v: number) { return v >= 1e3 ? (v/1e3).toFixed(0)+'K' : v.toString() }
 function humanize(code: string) {
   return code.replace(/_/g,' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
@@ -96,26 +101,73 @@ function HealthRing({ score, criticalCount, highCount, mediumCount }: { score: n
 
 // ── Rank Chart ─────────────────────────────────────────────────────────
 function RankChart({ history }: { history: number[] }) {
+  const [tip, setTip] = useState<{ idx: number } | null>(null)
   const min = 1, max = 10
   const w = 320, h = 110, pl = 28, pr = 12, pt = 10, pb = 22
   const innerW = w - pl - pr, innerH = h - pt - pb
   const xAt = (i: number) => pl + (i / Math.max(1, history.length - 1)) * innerW
   const yAt = (v: number) => pt + ((v - min) / (max - min)) * innerH
   const d = history.map((v, i) => (i === 0 ? 'M' : 'L') + xAt(i) + ',' + yAt(v)).join(' ')
+
+  function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const svgX = ((e.clientX - rect.left) / rect.width) * w
+    let nearest = 0, nearestDist = Infinity
+    history.forEach((_, i) => {
+      const dist = Math.abs(xAt(i) - svgX)
+      if (dist < nearestDist) { nearestDist = dist; nearest = i }
+    })
+    setTip({ idx: nearest })
+  }
+
+  const tipIdx = tip?.idx ?? history.length - 1
+  const tipPct = (xAt(tipIdx) / w) * 100
+
   return (
-    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-      {[1, 3, 5, 10].map((t) => (
-        <g key={t}>
-          <line x1={pl} x2={w - pr} y1={yAt(t)} y2={yAt(t)} stroke="rgba(255,255,255,0.04)" />
-          <text x={pl - 6} y={yAt(t) + 3} fontSize="9" fill="#9aa2b0" textAnchor="end" fontFamily="JetBrains Mono">#{t}</text>
-        </g>
-      ))}
-      <path d={d + ` L ${xAt(history.length-1)},${yAt(max)} L ${xAt(0)},${yAt(max)} Z`} fill="var(--down)" opacity="0.08" />
-      <path d={d} fill="none" stroke="var(--down)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
-        style={{ filter: 'drop-shadow(0 0 6px #ef444450)' }} />
-      <circle cx={xAt(history.length-1)} cy={yAt(history[history.length-1])} r="3.5"
-        fill="var(--down)" stroke="#0a0d12" strokeWidth="1.5" />
-    </svg>
+    <div style={{ position: 'relative' }}>
+      <svg
+        width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setTip(null)}
+        style={{ cursor: 'crosshair', display: 'block' }}
+      >
+        {[1, 3, 5, 10].map((t) => (
+          <g key={t}>
+            <line x1={pl} x2={w - pr} y1={yAt(t)} y2={yAt(t)} stroke="rgba(255,255,255,0.04)" />
+            <text x={pl - 6} y={yAt(t) + 3} fontSize="9" fill="#9aa2b0" textAnchor="end" fontFamily="JetBrains Mono">#{t}</text>
+          </g>
+        ))}
+        <path d={d + ` L ${xAt(history.length-1)},${yAt(max)} L ${xAt(0)},${yAt(max)} Z`} fill="var(--down)" opacity="0.08" />
+        <path d={d} fill="none" stroke="var(--down)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
+          style={{ filter: 'drop-shadow(0 0 6px #ef444450)' }} />
+        {tip && (
+          <line x1={xAt(tipIdx)} x2={xAt(tipIdx)} y1={pt} y2={h - pb}
+            stroke="rgba(255,255,255,0.18)" strokeWidth="1" strokeDasharray="3 3" />
+        )}
+        <circle cx={xAt(tipIdx)} cy={yAt(history[tipIdx])} r={tip ? 5 : 3.5}
+          fill="var(--down)" stroke="#0a0d12" strokeWidth="1.5"
+          style={{ transition: tip ? 'none' : 'r 150ms' }} />
+      </svg>
+      {tip && (
+        <div style={{
+          position: 'absolute',
+          left: `calc(${tipPct}% + ${tipPct > 65 ? -76 : 10}px)`,
+          top: 4,
+          background: 'var(--surface-2)',
+          border: '1px solid var(--line)',
+          borderRadius: 6,
+          padding: '4px 9px',
+          fontSize: 11,
+          fontFamily: 'JetBrains Mono, monospace',
+          pointerEvents: 'none',
+          whiteSpace: 'nowrap',
+          zIndex: 10,
+        }}>
+          <span style={{ color: 'var(--fg-4)' }}>wk {tipIdx + 1} · </span>
+          <span style={{ color: 'var(--down)', fontWeight: 700 }}>#{history[tipIdx]}</span>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -191,7 +243,7 @@ function IntentBadge({ intent }: { intent?: string }) {
 }
 
 // ── On-Page audit helpers ──────────────────────────────────────────────
-function AuditCell({ val, ideal, empty = '—' }: { val: string | null | undefined; ideal?: [number, number]; empty?: string }) {
+function AuditCell({ val, ideal }: { val: string | null | undefined; ideal?: [number, number] }) {
   if (!val) return <span style={{ color: 'var(--red)', fontSize: 11.5 }}>✗ missing</span>
   const len = val.length
   if (ideal) {
@@ -225,6 +277,7 @@ export default function SeoDashboardClient({
   const [compSort, setCompSort]     = useState<'intersections' | 'avg_position'>('intersections')
   const [compDir, setCompDir]       = useState<'asc' | 'desc'>('desc')
   const [openReco, setOpenReco]     = useState<SeoReco | null>(null)
+  const [openIssue, setOpenIssue]   = useState<typeof displayIssues[0] | null>(null)
 
   // Normalise issue display fields
   const displayIssues = useMemo(() => issues.map(i => ({
@@ -333,11 +386,11 @@ export default function SeoDashboardClient({
             value={issues.length}
             trend={[58,56,54,54,52,52,50,50,52,51,50,50,issues.length]}
             delta="▼ -8 this wk" dir="up" />
-          <KpiCard label="GSC CLICKS" src="last 28 days"
+          <KpiCard label="GSC CLICKS" src={_daysAgoLabel(28)}
             value={184000}
             trend={[200,210,215,212,208,205,200,196,194,190,188,186,184].map(v => v*1000)}
             delta="▼ -1.1%" dir="down" />
-          <KpiCard variant="joola" label="IMPRESSIONS" src="last 28 days"
+          <KpiCard variant="joola" label="IMPRESSIONS" src={_daysAgoLabel(28)}
             value={4824000}
             trend={[4400,4520,4600,4640,4680,4720,4760,4780,4790,4800,4810,4820,4824].map(v => v*1000)}
             delta="▲ +9.2%" dir="up" />
@@ -397,12 +450,14 @@ export default function SeoDashboardClient({
               const accent = issue.severity === 'high' ? 'var(--warn)' : '#60a5fa'
               const bg     = issue.severity === 'high' ? 'rgba(245,158,11,0.08)' : 'rgba(96,165,250,0.07)'
               return (
-                <div key={issue.id ?? idx} style={{
-                  display: 'flex', gap: 12, padding: '13px 14px',
-                  borderBottom: '1px solid var(--line-2)', alignItems: 'flex-start',
-                  borderLeft: `3px solid ${accent}`, borderRadius: '0 6px 6px 0',
-                  background: bg, marginBottom: 4,
-                }}>
+                <div key={issue.id ?? idx}
+                  onClick={() => setOpenIssue(issue)}
+                  style={{
+                    display: 'flex', gap: 12, padding: '13px 14px',
+                    borderBottom: '1px solid var(--line-2)', alignItems: 'flex-start',
+                    borderLeft: `3px solid ${accent}`, borderRadius: '0 6px 6px 0',
+                    background: bg, marginBottom: 4, cursor: 'pointer',
+                  }}>
                   <div style={{
                     width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
                     background: bg, border: `1px solid ${accent}55`,
@@ -466,7 +521,7 @@ export default function SeoDashboardClient({
             <div className="card card-pad-lg" style={{ marginBottom: 14 }}>
               <div className="card-head">
                 <h3>RANK · &lsquo;pickleball paddles&rsquo;</h3>
-                <span className="meta">13 wk · GSC</span>
+                <span className="meta">{_daysAgoLabel(91)} · GSC</span>
               </div>
               <RankChart history={rankHistory} />
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 11.5 }}>
@@ -513,7 +568,7 @@ export default function SeoDashboardClient({
               </div>
             </div>
             {filteredIssues.map((issue, idx) => (
-              <div className="issue-row" key={issue.id ?? idx}>
+              <div className="issue-row" key={issue.id ?? idx} onClick={() => setOpenIssue(issue)} style={{ cursor: 'pointer' }}>
                 <span className={'pill ' + (
                   issue.severity === 'critical' ? 'pill-red' :
                   issue.severity === 'high'     ? 'pill-amber' :
@@ -532,7 +587,7 @@ export default function SeoDashboardClient({
           </div>
 
           {/* Keywords */}
-          <div className="card card-pad-lg">
+          <div className="card card-pad-lg" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="card-head">
               <h3>KEYWORD OPPORTUNITIES <InfoTip text="Keywords people type into Google that are relevant to joola.com. The same keyword pool drives the Competitor Analysis below — competitors are sites that rank for these same terms." /></h3>
               <div className="chip-row" style={{ alignItems: 'center' }}>
@@ -544,7 +599,7 @@ export default function SeoDashboardClient({
                 ))}
               </div>
             </div>
-            <div className="table-wrap">
+            <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
               <table className="data">
                 <thead>
                   <tr>
@@ -747,6 +802,46 @@ export default function SeoDashboardClient({
           </div>
         </div>
       </div>
+
+      {/* ── Issue detail modal ── */}
+      {openIssue && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '40px 16px', overflowY: 'auto' }}
+          onClick={e => { if (e.target === e.currentTarget) setOpenIssue(null) }}
+        >
+          <div className="card" style={{ width: '100%', maxWidth: 580, padding: 0, position: 'relative' }}>
+            <div style={{ padding: '22px 26px 28px' }}>
+              <button onClick={() => setOpenIssue(null)} style={{ position: 'absolute', top: 12, right: 16, background: 'none', border: 'none', color: 'var(--fg-4)', cursor: 'pointer', fontSize: 22, lineHeight: 1 }}>×</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                <span style={{
+                  background: (openIssue.severity === 'critical' ? 'rgba(214,24,42,0.15)' : openIssue.severity === 'high' ? 'rgba(245,158,11,0.15)' : 'rgba(96,165,250,0.12)'),
+                  color: (openIssue.severity === 'critical' ? 'var(--red)' : openIssue.severity === 'high' ? 'var(--warn)' : '#60a5fa'),
+                  border: `1px solid ${openIssue.severity === 'critical' ? 'rgba(214,24,42,0.3)' : openIssue.severity === 'high' ? 'rgba(245,158,11,0.3)' : 'rgba(96,165,250,0.25)'}`,
+                  padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                  fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase' as const,
+                }}>
+                  {openIssue.severity === 'critical' && '⚠ '}{openIssue.severity}
+                </span>
+                <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>{openIssue._category}</span>
+              </div>
+              <h2 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 800, lineHeight: 1.3 }}>{openIssue._title}</h2>
+              {openIssue._desc && (
+                <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--fg-2)', lineHeight: 1.6 }}>{openIssue._desc}</p>
+              )}
+              <div style={{ background: 'rgba(245,230,37,0.06)', borderLeft: '3px solid var(--yellow)', borderRadius: '0 6px 6px 0', padding: '12px 16px', marginBottom: 18 }}>
+                <div className="mono" style={{ fontSize: 10, color: 'var(--yellow)', textTransform: 'uppercase' as const, letterSpacing: '0.06em', marginBottom: 8 }}>Suggested Fix</div>
+                <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: 'var(--fg-2)', lineHeight: 1.7 }}>
+                  <li>Identify all affected pages using the On-Page Audit table below.</li>
+                  <li>Prioritise by traffic impact — fix high-volume pages first.</li>
+                  <li>Assign to a team member and set a target completion date.</li>
+                  <li>Re-run the SEO analysis after the fix to verify improvement.</li>
+                </ol>
+              </div>
+              <button className="btn" style={{ fontSize: 12 }} onClick={() => setOpenIssue(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── AI Recommendation modal ── */}
       {openReco && (

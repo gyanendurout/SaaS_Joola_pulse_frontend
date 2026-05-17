@@ -503,7 +503,7 @@ export default function CommentsClient({
               </div>
             ) : (
               /* Comment rows */
-              <div>
+              <div style={{ maxHeight: 520, overflowY: 'auto' }}>
                 {filtered.slice(0, 50).map((c, i) => {
                   const sent = (c.sentiment || 'neutral').toLowerCase()
                   return (

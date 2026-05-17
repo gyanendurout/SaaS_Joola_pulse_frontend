@@ -87,10 +87,17 @@ function PredictPill({ p }: { p: string | undefined | null }) {
 
 type PeriodKey = '13w' | '4w' | 'ytd'
 const PERIOD_DAYS: Record<PeriodKey, number | 'ytd'> = { '13w': 91, '4w': 28, ytd: 'ytd' }
-const PERIOD_LABEL: Record<PeriodKey, string> = {
-  '13w': 'Last 13 weeks',
-  '4w':  'Last 4 weeks',
-  ytd:   'Year to date',
+
+function periodRange(key: PeriodKey): string {
+  const end = new Date()
+  const start = key === 'ytd'
+    ? new Date(end.getFullYear(), 0, 1)
+    : new Date(end.getTime() - (PERIOD_DAYS[key] as number) * 86400000)
+  return `${MONTHS[start.getMonth()]} ${start.getDate()} – ${MONTHS[end.getMonth()]} ${end.getDate()}, ${end.getFullYear()}`
+}
+function weeksAgoLabel(n: number): string {
+  const d = new Date(Date.now() - n * 7 * 86400000)
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}`
 }
 
 export default function PostsClient({
@@ -254,9 +261,9 @@ export default function PostsClient({
             ))}
           </select>
           <select className="fld" value={period} onChange={(e) => setPeriod(e.target.value as PeriodKey)}>
-            <option value="13w">{PERIOD_LABEL['13w']}</option>
-            <option value="4w">{PERIOD_LABEL['4w']}</option>
-            <option value="ytd">{PERIOD_LABEL.ytd}</option>
+            <option value="13w">13 wks · {periodRange('13w')}</option>
+            <option value="4w">4 wks · {periodRange('4w')}</option>
+            <option value="ytd">Year to date · {periodRange('ytd')}</option>
           </select>
         </div>
       </header>
@@ -264,7 +271,7 @@ export default function PostsClient({
       {/* KPIs */}
       <div className="section">
         <div className="kpi-grid">
-          <KpiCard variant="joola" label="POSTS PUBLISHED" src={PERIOD_LABEL[period].toLowerCase()}
+          <KpiCard variant="joola" label="POSTS PUBLISHED" src={periodRange(period)}
             tooltip="How many posts JOOLA published in the selected period"
             value={periodKpis.totalPosts} trend={trends.posts}
             delta={'▲ +' + Math.max(1, Math.round(periodKpis.totalPosts * 0.07)) + ' (7.0%)'} dir="up" />
@@ -272,7 +279,7 @@ export default function PostsClient({
             tooltip="Engagement Rate = (likes + comments) ÷ people who saw the post. Example: a post seen by 10,000 people that got 600 likes + 50 comments = 650 ÷ 10,000 = 6.5%. Benchmarks: above 6% is excellent, 3–6% is healthy, below 3% needs attention."
             value={+(periodKpis.avgER * 100).toFixed(2)} unit="%"
             trend={trends.er} delta="▼ -2.4%" dir="down" />
-          <KpiCard label="TOTAL VIEWS" src={`reels + video · ${PERIOD_LABEL[period].toLowerCase()}`}
+          <KpiCard label="TOTAL VIEWS" src={`reels + video · ${periodRange(period)}`}
             tooltip="Combined view count across all Reels and video posts in the selected period"
             value={periodKpis.totalViews} trend={trends.views}
             delta="▲ +18.4%" dir="up" />
@@ -288,7 +295,7 @@ export default function PostsClient({
         <div className="card card-pad-lg">
           <div className="card-head">
             <h3>CONTENT THEME × FORMAT — AVG ENGAGEMENT<Tip text="Which content topics perform best in each format (Reel, Photo, Carousel). Click column headers to sort and find your best-performing combinations." /></h3>
-            <span className="meta">last 13 wk · click headers to sort</span>
+            <span className="meta">{periodRange(period)} · click headers to sort</span>
           </div>
           <div className="table-wrap scroll" style={{ maxHeight: 400 }}>
             <table className="data">
@@ -340,43 +347,99 @@ export default function PostsClient({
         </div>
       </div>
 
-      {/* Athletes + CTA + Carousel */}
+      {/* Athletes + Cadence (left) | CTA + Carousel + Sponsored (right) */}
       <div className="section">
         <div className="card-grid cg-2-1">
-          <div className="card card-pad-lg">
-            <div className="card-head">
-              <h3>TOP ATHLETES BY ENGAGEMENT<Tip text="Which JOOLA athletes drive the most engagement when featured in posts — helps decide who to feature more often." /></h3>
-              <span className="meta">avg ER per athlete-featuring post · last 13 wk</span>
-            </div>
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>ATHLETE</th>
-                    <th className="num sortable" onClick={() => athleteSort('count')}>POSTS{athleteArrow('count')}</th>
-                    <th className="num sortable" onClick={() => athleteSort('er')}>AVG ER{athleteArrow('er')}</th>
-                    <th className="num sortable" onClick={() => athleteSort('views')}>AVG VIEWS{athleteArrow('views')}</th>
-                    <th className="num sortable" onClick={() => athleteSort('likes')}>AVG LIKES{athleteArrow('likes')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedAthleteRows.map((a) => (
-                    <tr key={a.name}>
-                      <td style={{ textTransform: 'capitalize', fontWeight: 600 }}>{a.name}</td>
-                      <td className="cell-num">{a.count}</td>
-                      <td className="cell-num" style={{
-                        color: a.avgEr >= 0.06 ? 'var(--joola)' : a.avgEr < 0.03 ? 'var(--down)' : 'var(--fg)',
-                        fontWeight: 700,
-                      }}>{(a.avgEr * 100).toFixed(2)}%</td>
-                      <td className="cell-num">{fmtViews(a.avgViews)}</td>
-                      <td className="cell-num">{fmtViews(a.avgLikes)}</td>
+          <div>
+            <div className="card card-pad-lg" style={{ marginBottom: 14 }}>
+              <div className="card-head">
+                <h3>TOP ATHLETES BY ENGAGEMENT<Tip text="Which JOOLA athletes drive the most engagement when featured in posts — helps decide who to feature more often." /></h3>
+                <span className="meta">avg ER · athlete posts · {periodRange(period)}</span>
+              </div>
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>ATHLETE</th>
+                      <th className="num sortable" onClick={() => athleteSort('count')}>POSTS{athleteArrow('count')}</th>
+                      <th className="num sortable" onClick={() => athleteSort('er')}>AVG ER{athleteArrow('er')}</th>
+                      <th className="num sortable" onClick={() => athleteSort('views')}>AVG VIEWS{athleteArrow('views')}</th>
+                      <th className="num sortable" onClick={() => athleteSort('likes')}>AVG LIKES{athleteArrow('likes')}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              {athleteRows.length === 0 && (
-                <div className="empty">No athlete tags yet. Will populate as post analysis runs identify `athletes_shown`.</div>
-              )}
+                  </thead>
+                  <tbody>
+                    {sortedAthleteRows.map((a) => (
+                      <tr key={a.name}>
+                        <td style={{ textTransform: 'capitalize', fontWeight: 600 }}>{a.name}</td>
+                        <td className="cell-num">{a.count}</td>
+                        <td className="cell-num" style={{
+                          color: a.avgEr >= 0.06 ? 'var(--joola)' : a.avgEr < 0.03 ? 'var(--down)' : 'var(--fg)',
+                          fontWeight: 700,
+                        }}>{(a.avgEr * 100).toFixed(2)}%</td>
+                        <td className="cell-num">{fmtViews(a.avgViews)}</td>
+                        <td className="cell-num">{fmtViews(a.avgLikes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {athleteRows.length === 0 && (
+                  <div className="empty">No athlete tags yet. Will populate as post analysis runs identify `athletes_shown`.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="card card-pad-lg">
+              <div className="card-head">
+                <h3>POSTING CADENCE BY THEME<Tip text="Best day of the week to post each content type for maximum engagement — the yellow bar shows the winning day. Plan your content calendar around these windows." /></h3>
+                <span className="meta">best day to post · avg ER · {periodRange(period)}</span>
+              </div>
+              <div className="table-wrap scroll" style={{ maxHeight: 400 }}>
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th className="sortable" onClick={() => cadenceSort('theme')}>THEME{cadenceArrow('theme')}</th>
+                      <th>BEST DAY</th>
+                      <th className="num sortable" onClick={() => cadenceSort('er')}>BEST ER{cadenceArrow('er')}</th>
+                      <th>RANKING</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedCadenceRows.map((row) => {
+                      const max = Math.max(0.0001, ...row.days.map((d) => d.avgEr))
+                      return (
+                        <tr key={row.theme}>
+                          <td style={{ fontWeight: 600, textTransform: 'capitalize' }}>
+                            {row.theme.replace(/_/g, ' ')}
+                          </td>
+                          <td style={{ textTransform: 'capitalize', fontWeight: 600, color: 'var(--yellow)' }}>
+                            {row.best.day}
+                          </td>
+                          <td className="cell-num" style={{ color: 'var(--joola)', fontWeight: 700 }}>
+                            {(row.best.avgEr * 100).toFixed(2)}%
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 24 }}>
+                              {row.days.slice(0, 7).map((d) => (
+                                <div key={d.day}
+                                  title={`${d.day}: ${(d.avgEr * 100).toFixed(2)}% (n=${d.count})`}
+                                  style={{
+                                    width: 14,
+                                    height: ((d.avgEr / max) * 100) + '%',
+                                    minHeight: 2,
+                                    background: d.day === row.best.day ? 'var(--yellow)' : 'rgba(255,255,255,0.15)',
+                                    borderRadius: 2,
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                {cadenceRows.length === 0 && <div className="empty">Not enough themed posts yet.</div>}
+              </div>
             </div>
           </div>
 
@@ -384,7 +447,7 @@ export default function PostsClient({
             <div className="card card-pad-lg" style={{ marginBottom: 14 }}>
               <div className="card-head">
                 <h3>CTA EFFECTIVENESS<Tip text="Which call-to-action phrases in your captions drive the most engagement — tells you what language motivates your audience to interact." /></h3>
-                <span className="meta">avg ER by CTA type · last 13 wk</span>
+                <span className="meta">avg ER by CTA type · {periodRange(period)}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {(() => {
@@ -414,10 +477,10 @@ export default function PostsClient({
               </div>
             </div>
 
-            <div className="card card-pad-lg">
+            <div className="card card-pad-lg" style={{ marginBottom: 14 }}>
               <div className="card-head">
                 <h3>CAROUSEL LENGTH<Tip text="How many slides your carousel posts should have for best engagement — more slides aren't always better." /></h3>
-                <span className="meta">slides vs avg ER · last 13 wk</span>
+                <span className="meta">slides vs avg ER · {periodRange(period)}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {(() => {
@@ -446,110 +509,51 @@ export default function PostsClient({
                 {carouselRows.length === 0 && <div className="empty" style={{ padding: '10px 0', fontSize: 11 }}>No carousel posts yet.</div>}
               </div>
             </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Sponsored vs Organic + Posting Cadence Optimizer */}
-      <div className="section">
-        <div className="card-grid cg-2-1">
-          <div className="card card-pad-lg">
-            <div className="card-head">
-              <h3>POSTING CADENCE BY THEME<Tip text="Best day of the week to post each content type for maximum engagement — the yellow bar shows the winning day. Plan your content calendar around these windows." /></h3>
-              <span className="meta">best day to post · avg ER · last 13 wk</span>
-            </div>
-            <div className="table-wrap scroll" style={{ maxHeight: 400 }}>
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th className="sortable" onClick={() => cadenceSort('theme')}>THEME{cadenceArrow('theme')}</th>
-                    <th>BEST DAY</th>
-                    <th className="num sortable" onClick={() => cadenceSort('er')}>BEST ER{cadenceArrow('er')}</th>
-                    <th>RANKING</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedCadenceRows.map((row) => {
-                    const max = Math.max(0.0001, ...row.days.map((d) => d.avgEr))
-                    return (
-                      <tr key={row.theme}>
-                        <td style={{ fontWeight: 600, textTransform: 'capitalize' }}>
-                          {row.theme.replace(/_/g, ' ')}
-                        </td>
-                        <td style={{ textTransform: 'capitalize', fontWeight: 600, color: 'var(--yellow)' }}>
-                          {row.best.day}
-                        </td>
-                        <td className="cell-num" style={{ color: 'var(--joola)', fontWeight: 700 }}>
-                          {(row.best.avgEr * 100).toFixed(2)}%
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 24 }}>
-                            {row.days.slice(0, 7).map((d) => (
-                              <div key={d.day}
-                                title={`${d.day}: ${(d.avgEr * 100).toFixed(2)}% (n=${d.count})`}
-                                style={{
-                                  width: 14,
-                                  height: ((d.avgEr / max) * 100) + '%',
-                                  minHeight: 2,
-                                  background: d.day === row.best.day ? 'var(--yellow)' : 'rgba(255,255,255,0.15)',
-                                  borderRadius: 2,
-                                }}
-                              />
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-              {cadenceRows.length === 0 && <div className="empty">Not enough themed posts yet.</div>}
-            </div>
-          </div>
-
-          <div className="card card-pad-lg">
-            <div className="card-head">
-              <h3>SPONSORED vs ORGANIC<Tip text="How paid posts compare to organic content in engagement and views — tells you whether spend is delivering better results than free posts." /></h3>
-              <span className="meta">paid media ROI · last 13 wk</span>
-            </div>
-            <div>
-              {sponsoredRows.map((r) => {
-                const isPaid = r.name === 'sponsored'
-                const tone = isPaid ? 'var(--yellow)' : 'var(--joola)'
-                return (
-                  <div key={r.name} style={{ padding: '10px 0', borderBottom: '1px solid var(--line-2)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: tone }}>
-                        {r.name}
-                      </span>
-                      <span className="mono" style={{ fontSize: 11, color: 'var(--fg-4)' }}>n={r.count}</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 18, fontSize: 12 }}>
-                      <div>
-                        <span style={{ color: 'var(--fg-4)', fontSize: 10 }}>AVG ER&nbsp;</span>
-                        <span className="mono" style={{ fontWeight: 700, color: tone }}>{(r.avgEr * 100).toFixed(2)}%</span>
+            <div className="card card-pad-lg">
+              <div className="card-head">
+                <h3>SPONSORED vs ORGANIC<Tip text="How paid posts compare to organic content in engagement and views — tells you whether spend is delivering better results than free posts." /></h3>
+                <span className="meta">paid media ROI · {periodRange(period)}</span>
+              </div>
+              <div>
+                {sponsoredRows.map((r) => {
+                  const isPaid = r.name === 'sponsored'
+                  const tone = isPaid ? 'var(--yellow)' : 'var(--joola)'
+                  return (
+                    <div key={r.name} style={{ padding: '10px 0', borderBottom: '1px solid var(--line-2)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: tone }}>
+                          {r.name}
+                        </span>
+                        <span className="mono" style={{ fontSize: 11, color: 'var(--fg-4)' }}>n={r.count}</span>
                       </div>
-                      <div>
-                        <span style={{ color: 'var(--fg-4)', fontSize: 10 }}>AVG VIEWS&nbsp;</span>
-                        <span className="mono" style={{ fontWeight: 700 }}>{fmtViews(r.avgViews)}</span>
+                      <div style={{ display: 'flex', gap: 18, fontSize: 12 }}>
+                        <div>
+                          <span style={{ color: 'var(--fg-4)', fontSize: 10 }}>AVG ER&nbsp;</span>
+                          <span className="mono" style={{ fontWeight: 700, color: tone }}>{(r.avgEr * 100).toFixed(2)}%</span>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--fg-4)', fontSize: 10 }}>AVG VIEWS&nbsp;</span>
+                          <span className="mono" style={{ fontWeight: 700 }}>{fmtViews(r.avgViews)}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
+              {sponsorBrands.length > 0 && (
+                <>
+                  <div className="divider" />
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.1em', marginBottom: 6 }}>TOP SPONSOR BRANDS</div>
+                  {sponsorBrands.map((b) => (
+                    <div key={b.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12 }}>
+                      <span style={{ textTransform: 'capitalize' }}>{b.name}</span>
+                      <span className="mono" style={{ color: 'var(--fg-3)' }}>{b.count}</span>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
-            {sponsorBrands.length > 0 && (
-              <>
-                <div className="divider" />
-                <div style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.1em', marginBottom: 6 }}>TOP SPONSOR BRANDS</div>
-                {sponsorBrands.map((b) => (
-                  <div key={b.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12 }}>
-                    <span style={{ textTransform: 'capitalize' }}>{b.name}</span>
-                    <span className="mono" style={{ color: 'var(--fg-3)' }}>{b.count}</span>
-                  </div>
-                ))}
-              </>
-            )}
           </div>
         </div>
       </div>
@@ -680,11 +684,11 @@ export default function PostsClient({
         <div className="card card-pad-lg">
           <div className="card-head">
             <h3>CONTENT CALENDAR<Tip text="Your posting cadence at a glance over 26 weeks — darker green means higher engagement on that day. Gaps show days with no posts." /></h3>
-            <span className="meta">last 26 wk · ER intensity</span>
+            <span className="meta">{weeksAgoLabel(26)} – {MONTHS[new Date().getMonth()]} {new Date().getDate()}, {new Date().getFullYear()} · ER intensity</span>
           </div>
           <ContentCalendar data={calendarData} />
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 10.5, color: 'var(--fg-4)', fontFamily: 'JetBrains Mono' }}>
-            <span>26 wk ago</span>
+            <span>{weeksAgoLabel(26)}</span>
             <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
               <span>Less</span>
               {[0.1, 0.3, 0.5, 0.7, 0.9].map((a) => (
