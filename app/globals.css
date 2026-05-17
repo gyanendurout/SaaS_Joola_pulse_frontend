@@ -79,7 +79,9 @@ body { margin: 0; }
   /* Establish a stacking context so fixed-position background layers (.app-bg, .dot-grid)
      never composite over scrolled content (BUG-003: black-screen on scroll). */
   position: relative; z-index: 1;
-  overflow-x: hidden;
+  /* overflow-x: clip (not hidden) — clip visually clips without creating a scroll container,
+     so wheel events from nested scrollable boxes chain through to window correctly. */
+  overflow-x: clip;
 }
 .main.collapsed { margin-left: 60px; }
 .main-inner {
