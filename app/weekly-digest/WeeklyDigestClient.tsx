@@ -3,6 +3,8 @@
 import { useState, useMemo } from 'react'
 import { format } from 'date-fns'
 import { Tip } from '@/components/ui/Tip'
+import { SortableTh, ExtLink } from '@/components/ui/SortableTh'
+import { formatEnum } from '@/lib/format'
 import type { IgWeeklySnapshot, IgPost, IgWishlistItem, IgComplaintLog, IgLoyalUser } from '@/lib/types'
 
 type SuperFan = Pick<IgLoyalUser, 'username' | 'loyalty_tier' | 'ambassador_score' | 'total_comments' | 'dominant_topic' | 'first_seen_at' | 'last_seen_at' | 'purchase_intent_count'>
@@ -43,9 +45,19 @@ function DeltaPill({ d, inverted = false }: { d: Delta; inverted?: boolean }) {
   const goodDirection = inverted ? !positive : positive
   const color = d.abs === 0 ? 'var(--fg-4)' : goodDirection ? 'var(--joola)' : 'var(--red)'
   const arrow = d.abs === 0 ? '—' : positive ? '▲' : '▼'
+  // UX-10: when the prior period was tiny, the percentage delta is misleading
+  // (e.g. 1 post → 9 posts = +800%). Above 200% switch to absolute change.
+  const useAbs = Math.abs(d.pct) > 200
+  const display = useAbs
+    ? (d.abs > 0 ? '+' : '') + d.abs.toLocaleString()
+    : Math.abs(d.pct).toFixed(1) + '%'
   return (
-    <span className="mono" style={{ fontSize: 11, color, fontWeight: 700 }}>
-      {arrow} {Math.abs(d.pct).toFixed(1)}%
+    <span
+      className="mono"
+      style={{ fontSize: 11, color, fontWeight: 700 }}
+      title={useAbs ? `${Math.abs(d.pct).toFixed(0)}% — comparison vs a very small prior period, shown as absolute change for clarity` : undefined}
+    >
+      {arrow} {display}
     </span>
   )
 }
@@ -78,10 +90,6 @@ export default function WeeklyDigestClient({
   function histSort(k: HistSortKey) {
     if (k === histSk) setHistSd((d) => (d === 'desc' ? 'asc' : 'desc'))
     else { setHistSk(k); setHistSd('desc') }
-  }
-  function histArrow(k: HistSortKey) {
-    if (k !== histSk) return <span className="sort-arrow"> ↕</span>
-    return <span className="sort-arrow active"> {histSd === 'desc' ? '▼' : '▲'}</span>
   }
   const sortedHistory = useMemo(() => {
     const dir = histSd === 'desc' ? -1 : 1
@@ -205,16 +213,16 @@ export default function WeeklyDigestClient({
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--fg-3)', marginTop: 4 }}>
               <span>Top emotion</span>
-              <span className="mono" style={{ fontWeight: 700, color: 'var(--yellow)', textTransform: 'capitalize' }}>
-                {current.top_emotion ?? '—'}
+              <span className="mono" style={{ fontWeight: 700, color: 'var(--yellow)' }}>
+                {formatEnum(current.top_emotion)}
               </span>
             </div>
           </div>
 
           <div className="card card-pad-lg">
             <div className="card-head"><h3>DOMINANT THEME<Tip text="The content theme you posted most this week. Consistent theming helps your audience know what to expect and builds brand identity." /></h3><span className="meta">what we posted this week</span></div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--yellow)', textTransform: 'capitalize', marginBottom: 8 }}>
-              {(current.dominant_content_theme || '—').replace(/_/g, ' ')}
+            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--yellow)', marginBottom: 8 }}>
+              {formatEnum(current.dominant_content_theme)}
             </div>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', lineHeight: 1.5 }}>
               Out of {current.posts_published} posts this week, this was the most-used content theme.
@@ -280,9 +288,12 @@ export default function WeeklyDigestClient({
                     <span>{fmtNum(topPost.view_count)} views</span>
                   </div>
                   {topPost.post_url && (
-                    <a href={topPost.post_url} target="_blank" rel="noopener noreferrer" className="tlink" style={{ fontSize: 11, marginTop: 6, display: 'inline-block' }}>
-                      ↗ view on Instagram
-                    </a>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                      <a href={topPost.post_url} target="_blank" rel="noopener noreferrer" className="tlink" style={{ fontSize: 11 }}>
+                        view on Instagram
+                      </a>
+                      <ExtLink href={topPost.post_url} label="Open on Instagram" />
+                    </div>
                   )}
                 </div>
               </div>
@@ -299,9 +310,11 @@ export default function WeeklyDigestClient({
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span className="mono" style={{ fontSize: 11, color: 'var(--fg-4)' }}>@{topComplaint.username}</span>
                   <span className={'pill ' + ((topComplaint.severity || 'low').toLowerCase() === 'high' ? 'pill-red' : (topComplaint.severity || '').toLowerCase() === 'medium' ? 'pill-amber' : 'pill-ghost')}>
-                    {(topComplaint.severity || 'low').toUpperCase()}
+                    {formatEnum(topComplaint.severity || 'low')}
                   </span>
-                  {topComplaint.complaint_category && <span className="pill pill-ghost">{topComplaint.complaint_category}</span>}
+                  {topComplaint.complaint_category && (
+                    <span className="pill pill-ghost">{formatEnum(topComplaint.complaint_category)}</span>
+                  )}
                   <span className="mono" style={{ fontSize: 11, color: topComplaint.joola_responded ? 'var(--joola)' : 'var(--warn)' }}>
                     {topComplaint.joola_responded ? '✓ resolved' : 'pending'}
                   </span>
@@ -325,7 +338,7 @@ export default function WeeklyDigestClient({
                       &ldquo;{(w.wishlist_text || '').slice(0, 90)}{(w.wishlist_text?.length ?? 0) > 90 ? '…' : ''}&rdquo;
                     </div>
                     <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center', fontSize: 10 }}>
-                      {w.category && <span className="pill pill-ghost" style={{ textTransform: 'capitalize', fontSize: 9 }}>{w.category}</span>}
+                      {w.category && <span className="pill pill-ghost" style={{ fontSize: 9 }}>{formatEnum(w.category)}</span>}
                       {w.times_similar_requested != null && w.times_similar_requested > 1 && (
                         <span className="pill pill-yellow" style={{ fontSize: 9 }}>×{w.times_similar_requested}</span>
                       )}
@@ -344,7 +357,7 @@ export default function WeeklyDigestClient({
                 const max = competitorBreakdown[0].count || 1
                 return (
                   <div key={c.name} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 40px', gap: 8, alignItems: 'center', padding: '6px 0' }}>
-                    <span style={{ fontSize: 12, textTransform: 'capitalize', fontWeight: 600 }}>{c.name}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>{formatEnum(c.name)}</span>
                     <div style={{ height: 8, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
                       <div style={{ width: ((c.count / max) * 100) + '%', height: '100%', background: 'var(--warn)' }} />
                     </div>
@@ -365,7 +378,7 @@ export default function WeeklyDigestClient({
                       @{u.username}
                     </a>
                     {u.dominant_topic && (
-                      <span className="pill pill-ghost" style={{ marginLeft: 6, fontSize: 9, textTransform: 'capitalize' }}>{u.dominant_topic}</span>
+                      <span className="pill pill-ghost" style={{ marginLeft: 6, fontSize: 9 }}>{formatEnum(u.dominant_topic)}</span>
                     )}
                   </div>
                   <span className="mono" style={{ fontSize: 11, color: 'var(--yellow)', fontWeight: 700 }}>
@@ -389,15 +402,15 @@ export default function WeeklyDigestClient({
             <table className="data">
               <thead>
                 <tr>
-                  <th className="sortable" onClick={() => histSort('week')}>WEEK{histArrow('week')}</th>
-                  <th className="num sortable" onClick={() => histSort('posts')}>POSTS{histArrow('posts')}</th>
-                  <th className="num sortable" onClick={() => histSort('comments')}>COMMENTS{histArrow('comments')}</th>
-                  <th className="num sortable" onClick={() => histSort('views')}>VIEWS{histArrow('views')}</th>
-                  <th className="num sortable" onClick={() => histSort('er')}>ER{histArrow('er')}</th>
-                  <th className="num sortable" onClick={() => histSort('sent')}>SENT{histArrow('sent')}</th>
-                  <th className="num sortable" onClick={() => histSort('complaints')}>COMPLAINTS{histArrow('complaints')}</th>
-                  <th className="num sortable" onClick={() => histSort('intent')}>INTENT{histArrow('intent')}</th>
-                  <th>TOP THEME</th>
+                  <SortableTh active={histSk === 'week'} direction={histSd} onClick={() => histSort('week')} title="Week starting date">WEEK</SortableTh>
+                  <SortableTh active={histSk === 'posts'} direction={histSd} onClick={() => histSort('posts')} num title="Posts published this week">POSTS</SortableTh>
+                  <SortableTh active={histSk === 'comments'} direction={histSd} onClick={() => histSort('comments')} num title="Total comments received this week">COMMENTS</SortableTh>
+                  <SortableTh active={histSk === 'views'} direction={histSd} onClick={() => histSort('views')} num title="Total post views this week">VIEWS</SortableTh>
+                  <SortableTh active={histSk === 'er'} direction={histSd} onClick={() => histSort('er')} num title="Average engagement rate this week — (likes + comments) ÷ reach">ER</SortableTh>
+                  <SortableTh active={histSk === 'sent'} direction={histSd} onClick={() => histSort('sent')} num title="Average sentiment score this week (-1 to +1). Higher is better.">SENT</SortableTh>
+                  <SortableTh active={histSk === 'complaints'} direction={histSd} onClick={() => histSort('complaints')} num title="Complaint count this week — spikes indicate product or service issues">COMPLAINTS</SortableTh>
+                  <SortableTh active={histSk === 'intent'} direction={histSd} onClick={() => histSort('intent')} num title="Purchase intent signals detected in comments this week">INTENT</SortableTh>
+                  <th title="Dominant content theme posted this week">TOP THEME</th>
                 </tr>
               </thead>
               <tbody>

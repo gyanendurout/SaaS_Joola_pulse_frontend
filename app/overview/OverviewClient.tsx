@@ -118,7 +118,7 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
           </div>
           <h1>BRAND <em>INTELLIGENCE</em></h1>
           <div className="sub">
-            Real-time view of JOOLA&apos;s Instagram engagement, organic search health, and fan signals.
+            Real-time view of JOOLA&apos;s presence across Instagram, YouTube, TikTok, X, and Reddit, plus organic search health and news mentions.
           </div>
         </div>
         <div className="head-actions">

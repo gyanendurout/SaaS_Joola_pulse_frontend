@@ -1,10 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
 
 const STORAGE_KEY = 'joola.sidebar.collapsed'
+const EXPANDED_KEY = 'joola.sidebar.expanded'
 
 // Inline SVG icon component — no lucide-react dependency
 const ICONS: Record<string, string[]> = {
@@ -17,7 +18,13 @@ const ICONS: Record<string, string[]> = {
   search:    ["M11 19a8 8 0 100-16 8 8 0 000 16z", "M21 21l-4.3-4.3"],
   pipeline:  ["M4 12h4", "M16 12h4", "M10 12h4", "M4 6h16", "M4 18h16"],
   chevrons:  ["M11 17l-5-5 5-5", "M18 17l-5-5 5-5"],
+  chevdown:  ["M6 9l6 6 6-6"],
   news:      ["M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2z", "M7 8h10", "M7 12h10", "M7 16h6"],
+  youtube:   ["M21 12a9 9 0 11-18 0 9 9 0 0118 0z", "M10 8l6 4-6 4V8z"],
+  star:      ["M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"],
+  reddit:    ["M21 12a9 9 0 11-18 0 9 9 0 0118 0z", "M8 11h.01", "M16 11h.01", "M9 15s1 1.5 3 1.5 3-1.5 3-1.5"],
+  music:     ["M9 17V5l12-2v12", "M9 17a3 3 0 11-6 0 3 3 0 016 0z", "M21 15a3 3 0 11-6 0 3 3 0 016 0z"],
+  xmark:     ["M18 6L6 18", "M6 6l12 12"],
 }
 
 function Ic({ paths, size = 16 }: { paths: string[]; size?: number }) {
@@ -36,8 +43,9 @@ interface NavItem {
   id: string
   label: string
   icon: string
-  href: string
+  href?: string
   badge?: string
+  children?: NavItem[]
 }
 
 const NAV: Array<{ section: string; items: NavItem[] }> = [
@@ -49,12 +57,22 @@ const NAV: Array<{ section: string; items: NavItem[] }> = [
     ],
   },
   {
-    section: 'INSTAGRAM',
+    section: 'SOCIAL MEDIA',
     items: [
-      { id: 'posts',          label: 'Posts & Cadence',    icon: 'posts',     href: '/posts' },
-      { id: 'comments',       label: 'Comment Intel',      icon: 'comments',  href: '/comments' },
-      { id: 'fans',           label: 'Fans & Ambassadors', icon: 'fans',      href: '/fans' },
-      { id: 'complaints',     label: 'Complaints',         icon: 'complaint', href: '/complaints' },
+      {
+        id: 'instagram', label: 'Instagram', icon: 'instagram',
+        children: [
+          { id: 'ig-posts',      label: 'Posts & Cadence',    icon: 'posts',     href: '/posts' },
+          { id: 'ig-comments',   label: 'Comment Intel',      icon: 'comments',  href: '/comments' },
+          { id: 'ig-fans',       label: 'Fans & Ambassadors', icon: 'fans',      href: '/fans' },
+          { id: 'ig-complaints', label: 'Complaints',         icon: 'complaint', href: '/complaints' },
+        ],
+      },
+      { id: 'youtube',      label: 'YouTube',     icon: 'youtube',  href: '/youtube' },
+      { id: 'tiktok',       label: 'TikTok',      icon: 'music',    href: '/tiktok' },
+      { id: 'twitter',      label: 'X / Twitter', icon: 'xmark',    href: '/twitter' },
+      { id: 'reddit',       label: 'Reddit',      icon: 'reddit',   href: '/reddit' },
+      { id: 'influencers',  label: 'Influencers', icon: 'star',     href: '/influencers' },
     ],
   },
   {
@@ -74,29 +92,183 @@ const NAV: Array<{ section: string; items: NavItem[] }> = [
 
 function getNow() {
   return new Date().toLocaleString('en-US', {
-    weekday: 'short', hour: '2-digit', minute: '2-digit',
-    timeZone: 'Asia/Kolkata', hour12: false,
+    weekday: 'short', hour: 'numeric', minute: '2-digit',
+    timeZone: 'Asia/Kolkata', hour12: true,
   }) + ' IST'
+}
+
+function isItemActive(item: NavItem, pathname: string): boolean {
+  if (item.href && (pathname === item.href || pathname.startsWith(item.href + '/'))) return true
+  if (item.children) return item.children.some(c => isItemActive(c, pathname))
+  return false
 }
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
   const [hydrated, setHydrated] = useState(false)
   const [nowStr, setNowStr] = useState('')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  // Compute which parents should auto-expand based on active route
+  const autoExpandIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const group of NAV) {
+      for (const item of group.items) {
+        if (item.children && item.children.some(c => isItemActive(c, pathname))) {
+          ids.add(item.id)
+        }
+      }
+    }
+    return ids
+  }, [pathname])
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(STORAGE_KEY) === '1')
+    const raw = localStorage.getItem(EXPANDED_KEY)
+    let stored: string[] = []
+    if (raw) {
+      try { stored = JSON.parse(raw) } catch { stored = [] }
+    } else {
+      // First load — default-expand Instagram
+      stored = ['instagram']
+    }
+    setExpanded(new Set([...stored, ...Array.from(autoExpandIds)]))
     setNowStr(getNow())
     setHydrated(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Auto-expand parents whose children become active (e.g. user navigates)
+  useEffect(() => {
+    if (!hydrated) return
+    if (autoExpandIds.size === 0) return
+    setExpanded(prev => {
+      const next = new Set(prev)
+      let changed = false
+      autoExpandIds.forEach(id => { if (!next.has(id)) { next.add(id); changed = true } })
+      return changed ? next : prev
+    })
+  }, [autoExpandIds, hydrated])
 
   useEffect(() => {
     if (hydrated) localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0')
   }, [collapsed, hydrated])
 
+  useEffect(() => {
+    if (hydrated) localStorage.setItem(EXPANDED_KEY, JSON.stringify(Array.from(expanded)))
+  }, [expanded, hydrated])
+
+  const toggleExpand = (id: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
   const sidebarCls = 'sidebar' + (collapsed ? ' collapsed' : '')
   const mainCls = 'main' + (collapsed ? ' collapsed' : '')
+
+  const renderItem = (item: NavItem, isChild = false) => {
+    const isActive = isItemActive(item, pathname)
+    const hasChildren = !!item.children && item.children.length > 0
+    const isExpanded = expanded.has(item.id)
+
+    // Parent with children (no href) — render as expander button.
+    // When sidebar is collapsed (icon-only mode), the expand toggle is meaningless;
+    // navigate to the parent's first child route instead so the click does something visible.
+    const onParentClick = () => {
+      if (collapsed) {
+        const firstChildHref = item.children?.find(c => c.href)?.href
+        if (firstChildHref) router.push(firstChildHref)
+        else toggleExpand(item.id)
+      } else {
+        toggleExpand(item.id)
+      }
+    }
+
+    if (hasChildren && !item.href) {
+      return (
+        <div key={item.id}>
+          <button
+            type="button"
+            onClick={onParentClick}
+            title={collapsed ? `${item.label} →` : undefined}
+            className={'nav-item' + (isActive ? ' active' : '')}
+            style={{
+              width: '100%',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              textAlign: 'left',
+              font: 'inherit',
+              color: 'inherit',
+            }}
+          >
+            <Ic paths={ICONS[item.icon] ?? []} size={16} />
+            <span className="ni-label">{item.label}</span>
+            {item.badge && <span className="ni-badge">{item.badge}</span>}
+            {!collapsed && (
+              <span
+                style={{
+                  marginLeft: 'auto',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  transition: 'transform 0.18s',
+                  transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+                  color: 'var(--fg-4)',
+                }}
+              >
+                <Ic paths={ICONS.chevdown} size={12} />
+              </span>
+            )}
+          </button>
+          {/* Children — only when sidebar expanded AND group expanded */}
+          {!collapsed && isExpanded && (
+            <div style={{ marginLeft: 0, marginTop: 2, marginBottom: 4 }}>
+              {item.children!.map(child => renderItem(child, true))}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // Leaf item — render as Link
+    return (
+      <Link
+        key={item.id}
+        href={item.href!}
+        className={'nav-item' + (isActive ? ' active' : '')}
+        style={isChild && !collapsed ? {
+          paddingLeft: 28,
+          fontSize: 12.5,
+          position: 'relative',
+        } : undefined}
+      >
+        {isChild && !collapsed && (
+          <span
+            aria-hidden
+            style={{
+              position: 'absolute',
+              left: 18,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: 4,
+              height: 4,
+              borderRadius: '50%',
+              background: isActive ? 'var(--yellow)' : 'var(--fg-4)',
+              opacity: isActive ? 1 : 0.5,
+            }}
+          />
+        )}
+        {(!isChild || collapsed) && <Ic paths={ICONS[item.icon] ?? []} size={isChild ? 14 : 16} />}
+        <span className="ni-label">{item.label}</span>
+        {item.badge && <span className="ni-badge">{item.badge}</span>}
+      </Link>
+    )
+  }
 
   return (
     <>
@@ -118,20 +290,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             {NAV.map(group => (
               <div className="nav-group" key={group.section}>
                 <span className="nav-label">{group.section}</span>
-                {group.items.map(item => {
-                  const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
-                  return (
-                    <Link
-                      key={item.id}
-                      href={item.href}
-                      className={'nav-item' + (isActive ? ' active' : '')}
-                    >
-                      <Ic paths={ICONS[item.icon] ?? []} size={16} />
-                      <span className="ni-label">{item.label}</span>
-                      {item.badge && <span className="ni-badge">{item.badge}</span>}
-                    </Link>
-                  )
-                })}
+                {group.items.map(item => renderItem(item))}
               </div>
             ))}
           </div>
@@ -143,6 +302,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             <button
               onClick={() => setCollapsed(c => !c)}
               title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               style={{
                 marginLeft: 'auto', background: 'none', border: 'none',
                 cursor: 'pointer', color: 'var(--fg-4)', padding: 4,
