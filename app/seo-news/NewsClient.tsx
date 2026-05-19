@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { NewsArticleGenerateCTA } from '@/components/content/NewsArticleGenerateCTA'
 import type { NewsArticle, ScrapeRun } from './page'
 
 // =========================================================================== //
@@ -239,14 +240,31 @@ function ArticleCard({ article, onClick }: { article: NewsArticle; onClick: () =
           )}
         </div>
 
-        {/* Suggested action */}
-        {article.suggested_action && article.suggested_action !== 'No action needed' && (
-          <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line-2)' }}>
+        {/* Suggested action + Draft CTA footer */}
+        <div
+          style={{
+            marginTop: 8,
+            paddingTop: 8,
+            borderTop: '1px solid var(--line-2)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flexWrap: 'wrap',
+          }}
+        >
+          {article.suggested_action && article.suggested_action !== 'No action needed' ? (
             <span style={{ fontSize: 10, color: ACTION_COLOR[article.suggested_action] || 'var(--fg-4)', fontFamily: 'JetBrains Mono, monospace' }}>
               → {article.suggested_action}
             </span>
-          </div>
-        )}
+          ) : (
+            <span style={{ fontSize: 10, color: 'var(--fg-4)', fontFamily: 'JetBrains Mono, monospace' }}>
+              View ↗
+            </span>
+          )}
+          <span style={{ marginLeft: 'auto' }}>
+            <NewsArticleGenerateCTA source="news" id={article.id} compact />
+          </span>
+        </div>
       </div>
     </div>
   )

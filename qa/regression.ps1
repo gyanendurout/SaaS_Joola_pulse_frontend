@@ -114,6 +114,10 @@ if (-not $SkipRoutes) {
       @{ path = '/seo-analyze';     expected = 200 },
       @{ path = '/seo-dashboard';   expected = 200 },
       @{ path = '/seo-news';        expected = 200 },
+      @{ path = '/content-generation';       expected = 200 },
+      @{ path = '/content-generation/text';  expected = 200 },
+      @{ path = '/content-generation/image'; expected = 200 },
+      @{ path = '/content-generation/reel';  expected = 200 },
       @{ path = '/__definitely_not_a_route__'; expected = 404 }
     )
 

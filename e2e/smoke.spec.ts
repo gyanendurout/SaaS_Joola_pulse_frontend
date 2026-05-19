@@ -16,6 +16,10 @@ const PAGES = [
   '/seo-analyze',
   '/seo-dashboard',
   '/seo-news',
+  '/content-generation',
+  '/content-generation/text',
+  '/content-generation/image',
+  '/content-generation/reel',
 ];
 
 test.describe('Route smoke — every page loads', () => {

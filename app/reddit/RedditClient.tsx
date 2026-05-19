@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { SortableTh, ExtLink } from '@/components/ui/SortableTh'
 import { Tip } from '@/components/ui/Tip'
+import { NewsArticleGenerateCTA } from '@/components/content/NewsArticleGenerateCTA'
 import { formatEnum } from '@/lib/format'
 import type { RedditMention } from './page'
 
@@ -337,7 +338,7 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
                   <SortableTh active={sortKey === 'upvotes'} direction={sortDir} onClick={() => setSort('upvotes')} num title="Total upvotes on the post — Reddit's community approval signal">Upvotes</SortableTh>
                   <SortableTh active={sortKey === 'sentiment'} direction={sortDir} onClick={() => setSort('sentiment')} title="AI-classified sentiment of the post">Sentiment</SortableTh>
                   <SortableTh active={sortKey === 'date'} direction={sortDir} onClick={() => setSort('date')} num title="Date the post was made on Reddit">Posted</SortableTh>
-                  <th style={{ width: 40 }} aria-label="Open"></th>
+                  <th style={{ width: 160 }} aria-label="Actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -387,7 +388,18 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
                     <td className="cell-num" style={{ fontSize: 12, color: 'var(--fg-4)' }}>
                       {fmtDate(m.posted_at || m.scraped_at)}
                     </td>
-                    <td><ExtLink href={m.post_url} label="Open on Reddit" /></td>
+                    <td>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <NewsArticleGenerateCTA
+                          source="reddit"
+                          id={m.id}
+                          compact
+                          emphasised={Boolean(m.is_crisis)}
+                          label={m.is_crisis ? '✎ Draft crisis response' : '✎ Draft response'}
+                        />
+                        <ExtLink href={m.post_url} label="Open on Reddit" />
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>

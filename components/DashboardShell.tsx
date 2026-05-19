@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
+import { Tip } from '@/components/ui/Tip'
 
 const STORAGE_KEY = 'joola.sidebar.collapsed'
 const EXPANDED_KEY = 'joola.sidebar.expanded'
@@ -25,6 +26,10 @@ const ICONS: Record<string, string[]> = {
   reddit:    ["M21 12a9 9 0 11-18 0 9 9 0 0118 0z", "M8 11h.01", "M16 11h.01", "M9 15s1 1.5 3 1.5 3-1.5 3-1.5"],
   music:     ["M9 17V5l12-2v12", "M9 17a3 3 0 11-6 0 3 3 0 016 0z", "M21 15a3 3 0 11-6 0 3 3 0 016 0z"],
   xmark:     ["M18 6L6 18", "M6 6l12 12"],
+  pencil:    ["M12 20h9", "M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4L16.5 3.5z"],
+  sparkle:   ["M12 3l2.5 5.5L20 11l-5.5 2.5L12 19l-2.5-5.5L4 11l5.5-2.5L12 3z"],
+  play:      ["M5 3l14 9-14 9V3z"],
+  drafts:    ["M4 4h12l4 4v12H4z", "M16 4v4h4", "M8 13h8", "M8 17h5"],
 }
 
 function Ic({ paths, size = 16 }: { paths: string[]; size?: number }) {
@@ -103,7 +108,13 @@ function isItemActive(item: NavItem, pathname: string): boolean {
   return false
 }
 
-export default function DashboardShell({ children }: { children: React.ReactNode }) {
+export default function DashboardShell({
+  children,
+  draftCount = 0,
+}: {
+  children: React.ReactNode
+  draftCount?: number
+}) {
   const pathname = usePathname()
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
@@ -293,6 +304,197 @@ export default function DashboardShell({ children }: { children: React.ReactNode
                 {group.items.map(item => renderItem(item))}
               </div>
             ))}
+
+            {/* CONTENT GENERATION (special — has disabled items, BETA badge, Tips) */}
+            {!collapsed && <div className="divider" style={{ margin: '12px 14px' }} />}
+            <div className="nav-group">
+              <span
+                className="nav-label"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  width: '100%',
+                }}
+              >
+                <span>CONTENT GENERATION</span>
+                {!collapsed && (
+                  <span
+                    className="pill pill-yellow"
+                    style={{ fontSize: 8, padding: '2px 6px', letterSpacing: '0.08em' }}
+                  >
+                    BETA
+                  </span>
+                )}
+              </span>
+
+              {/* Text — active link */}
+              <Link
+                href="/content-generation/text"
+                className={
+                  'nav-item' +
+                  (pathname === '/content-generation/text' ||
+                  pathname.startsWith('/content-generation/text/')
+                    ? ' active'
+                    : '')
+                }
+              >
+                <Ic paths={ICONS.pencil} size={16} />
+                <span className="ni-label">Text</span>
+              </Link>
+
+              {/* Image — disabled */}
+              <div
+                style={{
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <span
+                  className="nav-item"
+                  aria-disabled
+                  style={{
+                    opacity: 0.45,
+                    pointerEvents: 'none',
+                    flex: 1,
+                    cursor: 'not-allowed',
+                  }}
+                >
+                  <Ic paths={ICONS.sparkle} size={16} />
+                  <span className="ni-label">Image</span>
+                  {!collapsed && (
+                    <span
+                      className="pill pill-ghost"
+                      style={{
+                        marginLeft: 'auto',
+                        fontSize: 8,
+                        padding: '2px 6px',
+                        letterSpacing: '0.06em',
+                      }}
+                    >
+                      Soon
+                    </span>
+                  )}
+                </span>
+                {!collapsed && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      right: 4,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      pointerEvents: 'auto',
+                    }}
+                  >
+                    <Tip text="Image generation arrives Q3 2026" placement="right" />
+                  </span>
+                )}
+              </div>
+
+              {/* Reel — disabled */}
+              <div
+                style={{
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <span
+                  className="nav-item"
+                  aria-disabled
+                  style={{
+                    opacity: 0.45,
+                    pointerEvents: 'none',
+                    flex: 1,
+                    cursor: 'not-allowed',
+                  }}
+                >
+                  <Ic paths={ICONS.play} size={16} />
+                  <span className="ni-label">Reel</span>
+                  {!collapsed && (
+                    <span
+                      className="pill pill-ghost"
+                      style={{
+                        marginLeft: 'auto',
+                        fontSize: 8,
+                        padding: '2px 6px',
+                        letterSpacing: '0.06em',
+                      }}
+                    >
+                      Soon
+                    </span>
+                  )}
+                </span>
+                {!collapsed && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      right: 4,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      pointerEvents: 'auto',
+                    }}
+                  >
+                    <Tip text="Reel generation arrives Q4 2026" placement="right" />
+                  </span>
+                )}
+              </div>
+
+              {/* Drafts — sub-link with count badge */}
+              <Link
+                href="/content-generation"
+                className={
+                  'nav-item' +
+                  (pathname === '/content-generation' ? ' active' : '')
+                }
+                style={
+                  !collapsed
+                    ? {
+                        paddingLeft: 28,
+                        fontSize: 12.5,
+                        position: 'relative',
+                      }
+                    : undefined
+                }
+              >
+                {!collapsed && (
+                  <span
+                    aria-hidden
+                    style={{
+                      position: 'absolute',
+                      left: 18,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: 4,
+                      height: 4,
+                      borderRadius: '50%',
+                      background:
+                        pathname === '/content-generation'
+                          ? 'var(--yellow)'
+                          : 'var(--fg-4)',
+                      opacity: pathname === '/content-generation' ? 1 : 0.5,
+                    }}
+                  />
+                )}
+                {collapsed && <Ic paths={ICONS.drafts} size={14} />}
+                <span className="ni-label">Drafts</span>
+                <span
+                  className="ni-badge"
+                  style={{
+                    marginLeft: 'auto',
+                    background: 'var(--bg-3)',
+                    color: 'var(--fg-3)',
+                    border: '1px solid var(--line)',
+                    fontSize: 10,
+                    padding: '1px 6px',
+                    borderRadius: 10,
+                  }}
+                >
+                  {draftCount}
+                </span>
+              </Link>
+            </div>
           </div>
 
           {/* Footer */}
