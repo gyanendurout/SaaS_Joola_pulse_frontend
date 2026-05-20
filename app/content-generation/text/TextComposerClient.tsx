@@ -1,16 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { BriefEditor } from '@/components/content/BriefEditor'
 import { CtaGoalSelect } from '@/components/content/CtaGoalSelect'
 import { GeneratedDraft } from '@/components/content/GeneratedDraft'
-import { LengthToggle } from '@/components/content/LengthToggle'
-import { OutputFormatChips } from '@/components/content/OutputFormatChips'
 import { SignalPickerTabs } from '@/components/content/SignalPickerTabs'
-import { ToneSelector } from '@/components/content/ToneSelector'
-import { AUDIENCE_OPTIONS } from '@/lib/content/types'
-import { generateStream } from '@/lib/content/api'
+import { Tip } from '@/components/ui/Tip'
+import {
+  AUDIENCE_OPTIONS,
+  FORMAT_OPTIONS,
+  LENGTH_OPTIONS,
+  TONE_OPTIONS,
+} from '@/lib/content/types'
+import { deleteDraft, generateStream, updateDraft } from '@/lib/content/api'
+import { recommendStyle } from '@/lib/content/recommend'
 import {
   EMPTY_SELECTED_SIGNALS,
   type Audience,
@@ -18,6 +21,7 @@ import {
   type CtaGoal,
   type Draft,
   type DraftMetadata,
+  type DraftStatus,
   type GenerateRequest,
   type Length,
   type SelectedSignals,
@@ -29,7 +33,6 @@ import {
 import type {
   TextComposerSampleSeed,
   TextComposerSourceArticle,
-  TextComposerSourceReddit,
 } from './page'
 
 // =============================================================================
@@ -39,7 +42,6 @@ import type {
 interface Props {
   preview: SignalsPreview
   sourceArticle: TextComposerSourceArticle | null
-  sourceReddit: TextComposerSourceReddit | null
   sampleSeed: TextComposerSampleSeed | null
 }
 
@@ -52,13 +54,13 @@ function buildSignalsConfig(selected: SelectedSignals): SignalsConfig {
     use_seo_keywords: selected.seo.size > 0,
     use_top_posts: selected.top_posts.size > 0,
     use_news: selected.news.size > 0,
-    use_reddit: selected.reddit.size > 0,
+    use_reddit: false,
     use_loyal_fans: true,
     use_player_roster: true,
     selected_seo_keywords: Array.from(selected.seo),
     selected_top_post_ids: Array.from(selected.top_posts),
     selected_news_ids: Array.from(selected.news),
-    selected_reddit_ids: Array.from(selected.reddit),
+    selected_reddit_ids: [],
   }
 }
 
@@ -75,18 +77,13 @@ function wordCount(s: string): number {
 export default function TextComposerClient({
   preview,
   sourceArticle,
-  sourceReddit,
   sampleSeed,
 }: Props) {
-  const router = useRouter()
-
   // --- Format + style state ------------------------------------------------
   const [format, setFormat] = useState<ContentType>(() =>
-    sampleSeed?.format ?? (sourceArticle || sourceReddit ? 'ig_post' : 'ig_post'),
+    sampleSeed?.format ?? 'ig_post',
   )
-  const [tone, setTone] = useState<Tone>(
-    sourceReddit?.is_crisis ? 'defensive' : 'informative',
-  )
+  const [tone, setTone] = useState<Tone>('informative')
   const [length, setLength] = useState<Length>('medium')
   const [audience, setAudience] = useState<Audience>('general_fans')
   const [ctaGoal, setCtaGoal] = useState<CtaGoal>('shop')
@@ -95,11 +92,7 @@ export default function TextComposerClient({
   const initialBrief =
     sourceArticle
       ? `Write an Instagram caption responding to "${sourceArticle.title}" — angle: ${sourceArticle.suggested_action ?? 'highlight the JOOLA angle'}.`
-      : sourceReddit
-        ? sourceReddit.is_crisis
-          ? `Draft a defensive but factual response to r/${sourceReddit.subreddit} thread: "${sourceReddit.title ?? '(no title)'}". Tone must be calm, accountable, and avoid escalation.`
-          : `Draft a response to r/${sourceReddit.subreddit} thread: "${sourceReddit.title ?? '(no title)'}".`
-        : sampleSeed?.brief ?? ''
+      : sampleSeed?.brief ?? ''
   const [brief, setBrief] = useState(initialBrief)
   const [freePrompt, setFreePrompt] = useState('')
 
@@ -107,7 +100,6 @@ export default function TextComposerClient({
   const [selected, setSelected] = useState<SelectedSignals>(() => {
     const init = EMPTY_SELECTED_SIGNALS()
     if (sourceArticle) init.news.add(sourceArticle.id)
-    if (sourceReddit) init.reddit.add(sourceReddit.id)
     if (sampleSeed) {
       if (sampleSeed.preselectId) {
         if (sampleSeed.activeTab === 'news') init.news.add(sampleSeed.preselectId)
@@ -121,14 +113,12 @@ export default function TextComposerClient({
   })
 
   const [activeTab, setActiveTab] = useState<SignalSource>(() =>
-    sourceArticle ? 'news'
-      : sourceReddit ? 'reddit'
-      : sampleSeed?.activeTab ?? 'seo',
+    sourceArticle ? 'news' : sampleSeed?.activeTab ?? 'seo',
   )
 
   // --- News-source dismissible banner --------------------------------------
   const [sourceBannerVisible, setSourceBannerVisible] = useState<boolean>(
-    Boolean(sourceArticle || sourceReddit),
+    Boolean(sourceArticle),
   )
 
   // --- Generation state -----------------------------------------------------
@@ -156,8 +146,14 @@ export default function TextComposerClient({
 
   // --- Derived: Can generate? ---------------------------------------------
   const anySignal =
-    selected.seo.size + selected.top_posts.size + selected.news.size + selected.reddit.size > 0
+    selected.seo.size + selected.top_posts.size + selected.news.size > 0
   const canGenerate = !generating && (anySignal || brief.trim().length > 0 || freePrompt.trim().length > 0)
+
+  // --- AI recommendation based on selected signals ------------------------
+  const recommendation = useMemo(
+    () => recommendStyle(selected, preview),
+    [selected, preview],
+  )
 
   // --- Reset all -----------------------------------------------------------
   const reset = useCallback(() => {
@@ -195,7 +191,6 @@ export default function TextComposerClient({
       content_type: format,
       signals_config: buildSignalsConfig(selected),
       source_article_id: sourceArticle?.id ?? undefined,
-      source_reddit_id: sourceReddit?.id ?? undefined,
       instructions: fullBrief || undefined,
       tone,
       length,
@@ -251,11 +246,8 @@ export default function TextComposerClient({
         }
         setDraft(localDraft)
         setGenerating(false)
-
-        // For Blog, jump to the long-form editor immediately.
-        if (format === 'blog' && e.draft_id) {
-          router.push(`/content-generation/text/${e.draft_id}`)
-        }
+        // Stay on the composer — the OUTPUT panel handles inline preview,
+        // edit, save, status, and delete. No navigation away.
       },
       onError: e => {
         setError(e.message)
@@ -263,8 +255,8 @@ export default function TextComposerClient({
       },
     })
   }, [
-    canGenerate, freePrompt, brief, format, selected, sourceArticle, sourceReddit,
-    tone, length, audience, ctaGoal, genStartedAt, preview, router,
+    canGenerate, freePrompt, brief, format, selected, sourceArticle,
+    tone, length, audience, ctaGoal, genStartedAt, preview,
   ])
 
   // --- Selected pills ------------------------------------------------------
@@ -279,8 +271,9 @@ export default function TextComposerClient({
       const p = preview.news.find(x => x.id === id)
       pills.push({ source: 'news', id, label: p?.title?.slice(0, 40) ?? id.slice(0, 8) })
     })
+    // Reddit removed from UI but keep tolerating old `selected.reddit` ids in snapshots.
     Array.from(selected.reddit).forEach(id => {
-      const p = preview.reddit.find(x => x.id === id)
+      const p = preview.reddit?.find(x => x.id === id)
       pills.push({ source: 'reddit', id, label: p?.title?.slice(0, 40) ?? id.slice(0, 8) })
     })
     return pills
@@ -303,23 +296,10 @@ export default function TextComposerClient({
             Cross-channel signals → on-brand Blog, IG and Twitter drafts. Drafts persist for editing and export.
           </div>
         </div>
-        <div className="head-actions">
-          <button className="btn" onClick={reset} style={{ fontSize: 11 }}>
-            ↺ Reset
-          </button>
-          <button
-            className="btn btn-yellow"
-            onClick={generate}
-            disabled={!canGenerate}
-            style={{ fontSize: 12 }}
-          >
-            {generating ? '▶ Generating…' : 'Generate ▸'}
-          </button>
-        </div>
       </header>
 
       {/* Source banner */}
-      {sourceBannerVisible && (sourceArticle || sourceReddit) && (
+      {sourceBannerVisible && sourceArticle && (
         <div className="section">
           <div
             className="card"
@@ -334,11 +314,9 @@ export default function TextComposerClient({
           >
             <div style={{ fontSize: 12, color: 'var(--fg-2)', lineHeight: 1.4 }}>
               <span style={{ color: 'var(--yellow)', fontWeight: 700, marginRight: 6 }}>
-                Pre-loaded from {sourceArticle ? 'news article' : 'Reddit thread'}:
+                Pre-loaded from news article:
               </span>
-              <em style={{ color: 'var(--fg)' }}>
-                {sourceArticle ? sourceArticle.title : (sourceReddit?.title ?? '(no title)')}
-              </em>
+              <em style={{ color: 'var(--fg)' }}>{sourceArticle.title}</em>
             </div>
             <button
               className="btn"
@@ -379,31 +357,160 @@ export default function TextComposerClient({
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <Field label="Format">
-              <OutputFormatChips value={format} onChange={setFormat} />
-            </Field>
+            {/* AI recommendation banner — appears only when at least one suggestion differs from current */}
+            {(recommendation.tone || recommendation.length || recommendation.audience || recommendation.cta_goal) && (
+              (recommendation.tone && recommendation.tone !== tone) ||
+              (recommendation.length && recommendation.length !== length) ||
+              (recommendation.audience && recommendation.audience !== audience) ||
+              (recommendation.cta_goal && recommendation.cta_goal !== ctaGoal)
+            ) && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  padding: '8px 12px',
+                  background: 'rgba(245,230,37,0.06)',
+                  border: '1px dashed rgba(245,230,37,0.45)',
+                  borderRadius: 6,
+                  fontSize: 11,
+                  color: 'var(--fg-2)',
+                }}
+              >
+                <span>
+                  <strong style={{ color: 'var(--yellow)' }}>AI suggests</strong> a content profile based on your selected signals.
+                  Click each <span className="mono" style={{ color: 'var(--yellow)' }}>AI: …</span> chip to accept, or use:
+                </span>
+                <button
+                  className="btn btn-yellow"
+                  onClick={() => {
+                    if (recommendation.tone) setTone(recommendation.tone)
+                    if (recommendation.length) setLength(recommendation.length)
+                    if (recommendation.audience) setAudience(recommendation.audience)
+                    if (recommendation.cta_goal) setCtaGoal(recommendation.cta_goal)
+                  }}
+                  style={{ fontSize: 10.5, padding: '3px 10px' }}
+                >
+                  ⤴ Apply all
+                </button>
+              </div>
+            )}
 
-            <Field label="Tone">
-              <ToneSelector value={tone} onChange={setTone} />
-            </Field>
-
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <Field label="Length">
-                <LengthToggle value={length} onChange={setLength} format={format} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+              <Field label="Format">
+                <select
+                  className="fld"
+                  value={format}
+                  onChange={e => setFormat(e.target.value as ContentType)}
+                  style={{ fontSize: 12, width: '100%' }}
+                  aria-label="Output format"
+                >
+                  {FORMAT_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
               </Field>
-              <Field label="Audience">
+
+              <Field
+                label="Tone"
+                aiBadge={
+                  recommendation.tone && recommendation.tone !== tone ? (
+                    <AiBadge
+                      label={TONE_OPTIONS.find(o => o.value === recommendation.tone)?.label ?? recommendation.tone}
+                      reason={recommendation.reasons.tone}
+                      onApply={() => setTone(recommendation.tone!)}
+                    />
+                  ) : null
+                }
+              >
+                <select
+                  className="fld"
+                  value={tone}
+                  onChange={e => setTone(e.target.value as Tone)}
+                  style={{ fontSize: 12, width: '100%' }}
+                  aria-label="Tone"
+                  title={TONE_OPTIONS.find(o => o.value === tone)?.description}
+                >
+                  {TONE_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value} title={o.description}>{o.label}</option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field
+                label="Length"
+                aiBadge={
+                  recommendation.length && recommendation.length !== length ? (
+                    <AiBadge
+                      label={LENGTH_OPTIONS.find(o => o.value === recommendation.length)?.label ?? recommendation.length}
+                      reason={recommendation.reasons.length}
+                      onApply={() => setLength(recommendation.length!)}
+                    />
+                  ) : null
+                }
+              >
+                <select
+                  className="fld"
+                  value={length}
+                  onChange={e => setLength(e.target.value as Length)}
+                  style={{ fontSize: 12, width: '100%' }}
+                  aria-label="Length"
+                >
+                  {LENGTH_OPTIONS.map(o => {
+                    const sub = format === 'blog' ? o.blog : format === 'twitter_response' ? o.tweet : o.ig
+                    return (
+                      <option key={o.value} value={o.value}>{o.label} — {sub}</option>
+                    )
+                  })}
+                </select>
+              </Field>
+
+              <Field
+                label="Audience"
+                aiBadge={
+                  recommendation.audience && recommendation.audience !== audience ? (
+                    <AiBadge
+                      label={AUDIENCE_OPTIONS.find(o => o.value === recommendation.audience)?.label ?? recommendation.audience}
+                      reason={recommendation.reasons.audience}
+                      onApply={() => setAudience(recommendation.audience!)}
+                    />
+                  ) : null
+                }
+              >
                 <select
                   className="fld"
                   value={audience}
                   onChange={e => setAudience(e.target.value as Audience)}
-                  style={{ fontSize: 12, minWidth: 200 }}
+                  style={{ fontSize: 12, width: '100%' }}
+                  aria-label="Audience"
                 >
                   {AUDIENCE_OPTIONS.map(o => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
               </Field>
-              <Field label="CTA goal">
+
+              <Field
+                label={
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    CTA goal
+                    <Tip
+                      size={11}
+                      text="Call-To-Action goal — what action the closing line should drive readers to take. 'Shop' adds a product link, 'Sign-up' invites them to a list, 'Reply' encourages engagement, 'No CTA' omits the call-out entirely."
+                    />
+                  </span>
+                }
+                aiBadge={
+                  recommendation.cta_goal && recommendation.cta_goal !== ctaGoal ? (
+                    <AiBadge
+                      label={recommendation.cta_goal}
+                      reason={recommendation.reasons.cta_goal}
+                      onApply={() => setCtaGoal(recommendation.cta_goal!)}
+                    />
+                  ) : null
+                }
+              >
                 <CtaGoalSelect value={ctaGoal} onChange={setCtaGoal} />
               </Field>
             </div>
@@ -438,7 +545,7 @@ export default function TextComposerClient({
               </Field>
             )}
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, alignItems: 'center', marginTop: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'center', marginTop: 6 }}>
               <button className="btn" onClick={reset} style={{ fontSize: 11 }}>↺ Reset</button>
               <button
                 className="btn btn-yellow"
@@ -505,43 +612,50 @@ export default function TextComposerClient({
           )}
 
           {draft && (
-            <GeneratedDraft
+            <DraftOutputPanel
               draft={draft}
-              meta={{
-                wordCount: typeof draft.metadata?.word_count === 'number' ? draft.metadata.word_count : undefined,
-                genMs: typeof draft.metadata?.gen_ms === 'number' ? draft.metadata.gen_ms : undefined,
-                brandVoice: draft.metadata?.brand_voice ?? null,
-              }}
+              onChange={setDraft}
+              onClear={() => setDraft(null)}
               onRegenerate={generate}
-              onOpenEditor={() => router.push(`/content-generation/text/${draft.id}`)}
               busy={generating}
             />
           )}
         </section>
       </div>
 
-      <style>{`
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         .composer-grid {
           display: grid;
           grid-template-columns: 300px minmax(0, 1fr) 440px;
           gap: 14px;
-          align-items: stretch;
+          align-items: start;
         }
         .composer-zone {
           display: flex;
           flex-direction: column;
-          min-height: 520px;
+          height: 680px;
+          max-height: 80vh;
+          overflow: hidden;
         }
-        .composer-zone-signals { min-height: 640px; }
+        .composer-zone > .card-head { flex: 0 0 auto; }
+        .composer-zone > div:not(.card-head) {
+          flex: 1 1 auto;
+          min-height: 0;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
         @media (max-width: 1280px) {
           .composer-grid { grid-template-columns: 280px minmax(0, 1fr) 380px; }
         }
         @media (max-width: 1100px) {
           .composer-grid { grid-template-columns: 1fr; }
-          .composer-zone { min-height: 0; }
-          .composer-zone-signals { min-height: 420px; }
+          .composer-zone { height: 520px; max-height: 60vh; }
         }
-      `}</style>
+      `,
+        }}
+      />
     </div>
   )
 }
@@ -550,22 +664,304 @@ export default function TextComposerClient({
 // Tiny helpers
 // =============================================================================
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  aiBadge,
+  children,
+}: {
+  label: React.ReactNode
+  aiBadge?: React.ReactNode
+  children: React.ReactNode
+}) {
   return (
     <div>
       <div
-        className="mono"
         style={{
-          fontSize: 10,
-          color: 'var(--fg-4)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
           marginBottom: 6,
+          gap: 6,
+          minHeight: 14,
         }}
       >
-        {label}
+        <div
+          className="mono"
+          style={{
+            fontSize: 10,
+            color: 'var(--fg-4)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+          }}
+        >
+          {label}
+        </div>
+        {aiBadge}
       </div>
       {children}
+    </div>
+  )
+}
+
+function AiBadge({
+  label,
+  reason,
+  onApply,
+}: {
+  label: string
+  reason?: string
+  onApply: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onApply}
+      title={reason ?? 'Apply AI recommendation'}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        background: 'rgba(245,230,37,0.10)',
+        border: '1px dashed rgba(245,230,37,0.55)',
+        color: 'var(--yellow)',
+        borderRadius: 4,
+        padding: '1px 6px',
+        fontSize: 9.5,
+        fontFamily: 'JetBrains Mono, monospace',
+        cursor: 'pointer',
+        lineHeight: 1.4,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      AI: {label} ⤴
+    </button>
+  )
+}
+
+// =============================================================================
+// Draft output panel — preview + inline edit + status + save + delete
+// =============================================================================
+
+const STATUS_OPTIONS: { value: DraftStatus; label: string }[] = [
+  { value: 'draft', label: 'Draft' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'published', label: 'Published' },
+  { value: 'archived', label: 'Archived' },
+]
+
+function DraftOutputPanel({
+  draft,
+  onChange,
+  onClear,
+  onRegenerate,
+  busy,
+}: {
+  draft: Draft
+  onChange: (next: Draft) => void
+  onClear: () => void
+  onRegenerate?: () => void
+  busy?: boolean
+}) {
+  const [editing, setEditing] = useState(false)
+  const [bodyDraft, setBodyDraft] = useState(draft.body)
+  const [titleDraft, setTitleDraft] = useState(draft.title ?? '')
+  const [saving, setSaving] = useState(false)
+  const [savedTick, setSavedTick] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  // Reset local edit buffers when a new draft arrives (e.g. after regenerate)
+  useEffect(() => {
+    setBodyDraft(draft.body)
+    setTitleDraft(draft.title ?? '')
+    setEditing(false)
+    setErr(null)
+  }, [draft.id, draft.body, draft.title])
+
+  const dirty = editing && (bodyDraft !== draft.body || titleDraft !== (draft.title ?? ''))
+
+  const save = useCallback(async () => {
+    setSaving(true)
+    setErr(null)
+    try {
+      const patch: { body?: string; title?: string | null } = {}
+      if (bodyDraft !== draft.body) patch.body = bodyDraft
+      if (titleDraft !== (draft.title ?? '')) patch.title = titleDraft || null
+      const updated = Object.keys(patch).length > 0 ? await updateDraft(draft.id, patch) : draft
+      onChange(updated)
+      setEditing(false)
+      setSavedTick(true)
+      setTimeout(() => setSavedTick(false), 1600)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }, [bodyDraft, titleDraft, draft, onChange])
+
+  const cancel = useCallback(() => {
+    setBodyDraft(draft.body)
+    setTitleDraft(draft.title ?? '')
+    setEditing(false)
+    setErr(null)
+  }, [draft.body, draft.title])
+
+  const setStatus = useCallback(async (next: DraftStatus) => {
+    setSaving(true)
+    setErr(null)
+    try {
+      const updated = await updateDraft(draft.id, { status: next })
+      onChange(updated)
+      setSavedTick(true)
+      setTimeout(() => setSavedTick(false), 1600)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Status update failed')
+    } finally {
+      setSaving(false)
+    }
+  }, [draft.id, onChange])
+
+  const doDelete = useCallback(async () => {
+    if (!window.confirm('Delete this draft from the database? This cannot be undone.')) return
+    setSaving(true)
+    setErr(null)
+    try {
+      await deleteDraft(draft.id)
+      onClear()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Delete failed')
+    } finally {
+      setSaving(false)
+    }
+  }, [draft.id, onClear])
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Toolbar row */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            STATUS
+          </span>
+          <select
+            className="fld"
+            value={draft.status}
+            onChange={e => setStatus(e.target.value as DraftStatus)}
+            disabled={saving}
+            style={{ fontSize: 11, padding: '2px 6px' }}
+            aria-label="Draft status"
+          >
+            {STATUS_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          {savedTick && (
+            <span style={{ fontSize: 10, color: 'var(--joola)' }}>✓ saved</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {!editing ? (
+            <button
+              className="btn"
+              onClick={() => setEditing(true)}
+              style={{ fontSize: 11 }}
+              disabled={saving}
+            >
+              ✎ Edit
+            </button>
+          ) : (
+            <>
+              <button
+                className="btn"
+                onClick={cancel}
+                style={{ fontSize: 11 }}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-yellow"
+                onClick={save}
+                style={{ fontSize: 11 }}
+                disabled={saving || !dirty}
+              >
+                {saving ? 'Saving…' : '✓ Save'}
+              </button>
+            </>
+          )}
+          <button
+            className="btn"
+            onClick={doDelete}
+            style={{ fontSize: 11, color: '#fca5a5' }}
+            disabled={saving}
+          >
+            🗑
+          </button>
+        </div>
+      </div>
+
+      {err && (
+        <div
+          role="alert"
+          style={{
+            border: '1px solid rgba(239,68,68,0.4)',
+            background: 'rgba(239,68,68,0.08)',
+            color: '#fca5a5',
+            padding: '6px 10px',
+            borderRadius: 6,
+            fontSize: 11,
+          }}
+        >
+          {err}
+        </div>
+      )}
+
+      {editing ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {draft.content_type === 'blog' && (
+            <input
+              type="text"
+              className="fld"
+              value={titleDraft}
+              onChange={e => setTitleDraft(e.target.value)}
+              placeholder="Title (H1)"
+              style={{ fontSize: 13, fontWeight: 600 }}
+            />
+          )}
+          <textarea
+            value={bodyDraft}
+            onChange={e => setBodyDraft(e.target.value)}
+            spellCheck
+            style={{
+              minHeight: 320,
+              maxHeight: 540,
+              padding: '10px 12px',
+              fontFamily: 'JetBrains Mono, monospace',
+              fontSize: 12.5,
+              lineHeight: 1.55,
+              background: 'var(--surface-2)',
+              color: 'var(--fg)',
+              border: '1px solid var(--line)',
+              borderRadius: 6,
+              resize: 'vertical',
+              width: '100%',
+            }}
+          />
+          <div className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', textAlign: 'right' }}>
+            {bodyDraft.trim().split(/\s+/).filter(Boolean).length} words · {bodyDraft.length} chars
+          </div>
+        </div>
+      ) : (
+        <GeneratedDraft
+          draft={draft}
+          meta={{
+            wordCount: typeof draft.metadata?.word_count === 'number' ? draft.metadata.word_count : undefined,
+            genMs: typeof draft.metadata?.gen_ms === 'number' ? draft.metadata.gen_ms : undefined,
+            brandVoice: draft.metadata?.brand_voice ?? null,
+          }}
+          onRegenerate={onRegenerate}
+          busy={busy}
+        />
+      )}
     </div>
   )
 }
