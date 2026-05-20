@@ -39,6 +39,16 @@ function fmtDuration(secs: number | null): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
+// A YouTube Short is any video <= 60 seconds. Trust the DB flag if it's
+// explicitly true; otherwise fall back to duration_seconds. The DB `is_short`
+// column is unpopulated (false) for the JOOLA channel, so the duration
+// fallback is what actually drives the classification today.
+function isShort(v: { duration_seconds?: number | null; is_short?: boolean | null }): boolean {
+  if (v.is_short === true) return true
+  const secs = v.duration_seconds
+  return secs != null && secs > 0 && secs <= 60
+}
+
 type VideoFilter = 'all' | 'short' | 'long'
 type SortKey = 'title' | 'type' | 'views' | 'likes' | 'comments' | 'duration' | 'date'
 
@@ -56,8 +66,8 @@ export default function YoutubeClient({ channel, videos, weeklyStats, latestWeek
 
   const filtered = useMemo(() => {
     let list = videos
-    if (filter === 'short') list = list.filter(v => v.is_short)
-    if (filter === 'long') list = list.filter(v => !v.is_short)
+    if (filter === 'short') list = list.filter(isShort)
+    if (filter === 'long') list = list.filter(v => !isShort(v))
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(v => v.title?.toLowerCase().includes(q))
@@ -66,7 +76,7 @@ export default function YoutubeClient({ channel, videos, weeklyStats, latestWeek
     return [...list].sort((a, b) => {
       switch (sortKey) {
         case 'title': return ((a.title ?? '').localeCompare(b.title ?? '')) * m
-        case 'type': return ((a.is_short ? 1 : 0) - (b.is_short ? 1 : 0)) * m
+        case 'type': return ((isShort(a) ? 1 : 0) - (isShort(b) ? 1 : 0)) * m
         case 'views': return ((a.view_count ?? 0) - (b.view_count ?? 0)) * m
         case 'likes': return ((a.like_count ?? 0) - (b.like_count ?? 0)) * m
         case 'comments': return ((a.comment_count ?? 0) - (b.comment_count ?? 0)) * m
@@ -76,7 +86,7 @@ export default function YoutubeClient({ channel, videos, weeklyStats, latestWeek
     })
   }, [videos, filter, search, sortKey, sortDir])
 
-  const shorts = videos.filter(v => v.is_short).length
+  const shorts = videos.filter(isShort).length
   const longform = videos.length - shorts
 
   return (
@@ -220,7 +230,7 @@ export default function YoutubeClient({ channel, videos, weeklyStats, latestWeek
                         </a>
                       </td>
                       <td>
-                        {v.is_short ? (
+                        {isShort(v) ? (
                           <span className="pill-warn" style={{ fontSize: 10 }}>SHORT</span>
                         ) : (
                           <span className="pill-info" style={{ fontSize: 10 }}>LONG</span>

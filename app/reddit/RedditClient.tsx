@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { SortableTh, ExtLink } from '@/components/ui/SortableTh'
 import { Tip } from '@/components/ui/Tip'
 import { NewsArticleGenerateCTA } from '@/components/content/NewsArticleGenerateCTA'
@@ -350,14 +350,40 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
                       {!m.is_crisis && !m.is_opportunity && <span style={{ fontSize: 11, color: 'var(--fg-4)' }}>—</span>}
                     </td>
                     <td style={{ maxWidth: 360 }}>
-                      {m.post_url ? (
-                        <a href={m.post_url} target="_blank" rel="noreferrer" className="tlink"
-                          style={{ fontSize: 13, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                          {m.post_title}
-                        </a>
-                      ) : (
-                        <span style={{ fontSize: 13 }}>{m.post_title}</span>
-                      )}
+                      {(() => {
+                        const rawTitle = (m.post_title ?? '').trim()
+                        const rawBody = (m.content_text ?? '').trim()
+                        let titleNode: React.ReactNode
+                        let titleStyle: React.CSSProperties = {
+                          fontSize: 13,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }
+                        let titleAttr: string | undefined
+                        if (rawTitle) {
+                          titleNode = rawTitle
+                        } else if (rawBody) {
+                          const firstLine = rawBody.split(/\r?\n/).find(l => l.trim().length > 0) ?? rawBody
+                          const snippet = firstLine.length > 80 ? firstLine.slice(0, 80).trimEnd() + ' …' : firstLine
+                          titleNode = snippet
+                          titleStyle = { ...titleStyle, fontStyle: 'italic' }
+                          titleAttr = 'Original Reddit submission had no title — showing first line of the body.'
+                        } else {
+                          titleNode = '(no title)'
+                          titleStyle = { ...titleStyle, fontStyle: 'italic', color: 'var(--fg-4)' }
+                          titleAttr = 'Original Reddit submission had no title — open the post to see the body.'
+                        }
+                        return m.post_url ? (
+                          <a href={m.post_url} target="_blank" rel="noreferrer" className="tlink"
+                            style={titleStyle} title={titleAttr}>
+                            {titleNode}
+                          </a>
+                        ) : (
+                          <span style={titleStyle} title={titleAttr}>{titleNode}</span>
+                        )
+                      })()}
                       {m.topics && m.topics.length > 0 && (
                         <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                           {m.topics.slice(0, 4).map(t => (

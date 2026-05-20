@@ -100,14 +100,30 @@ function HealthRing({ score, criticalCount, highCount, mediumCount }: { score: n
 }
 
 // ── Rank Chart ─────────────────────────────────────────────────────────
+// NOTE on color semantics: in SEO, rank "position" is a place on Google's
+// results page — #1 is the top result, higher numbers are further down.
+// So a DOWNWARD trend in the position number is an IMPROVEMENT (e.g. #10
+// → #1 means the page climbed to the top result). We pick the line color
+// from the trend direction (last vs first): improving = green (--joola),
+// worsening = red (--down), flat = neutral (--fg-3).
 function RankChart({ history }: { history: number[] }) {
   const [tip, setTip] = useState<{ idx: number } | null>(null)
   const min = 1, max = 10
-  const w = 320, h = 110, pl = 28, pr = 12, pt = 10, pb = 22
+  const w = 320, h = 110, pl = 38, pr = 12, pt = 10, pb = 30
   const innerW = w - pl - pr, innerH = h - pt - pb
   const xAt = (i: number) => pl + (i / Math.max(1, history.length - 1)) * innerW
   const yAt = (v: number) => pt + ((v - min) / (max - min)) * innerH
   const d = history.map((v, i) => (i === 0 ? 'M' : 'L') + xAt(i) + ',' + yAt(v)).join(' ')
+
+  // Trend direction: in rank space, smaller number is better.
+  // first - last > 0 → positions went down numerically → ranking IMPROVED.
+  const first = history[0] ?? 0
+  const last = history[history.length - 1] ?? 0
+  const trendDelta = first - last
+  const isImproving = trendDelta > 0.2
+  const isWorsening = trendDelta < -0.2
+  const lineColor = isImproving ? 'var(--joola)' : isWorsening ? 'var(--down)' : 'var(--fg-3)'
+  const glow = isImproving ? '#22c55e60' : isWorsening ? '#ef444460' : '#ffffff20'
 
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -131,21 +147,34 @@ function RankChart({ history }: { history: number[] }) {
         onMouseLeave={() => setTip(null)}
         style={{ cursor: 'crosshair', display: 'block' }}
       >
+        {/* Y-axis title — vertical "POSITION" label so users know the # values are Google rank */}
+        <text
+          x={10} y={pt + innerH / 2}
+          fontSize="8.5" fill="#cdd3df" textAnchor="middle"
+          fontFamily="JetBrains Mono, monospace" letterSpacing="0.14em"
+          transform={`rotate(-90 10 ${pt + innerH / 2})`}
+        >POSITION</text>
+        {/* Hint just under the chart — clarifies the inverted scale */}
+        <text
+          x={pl} y={h - 6}
+          fontSize="8.5" fill="#9aa2b0" textAnchor="start"
+          fontFamily="JetBrains Mono, monospace" letterSpacing="0.08em"
+        >↓ LOWER = BETTER (#1 IS GOOGLE&apos;S TOP RESULT)</text>
         {[1, 3, 5, 10].map((t) => (
           <g key={t}>
             <line x1={pl} x2={w - pr} y1={yAt(t)} y2={yAt(t)} stroke="rgba(255,255,255,0.04)" />
             <text x={pl - 6} y={yAt(t) + 3} fontSize="9" fill="#9aa2b0" textAnchor="end" fontFamily="JetBrains Mono">#{t}</text>
           </g>
         ))}
-        <path d={d + ` L ${xAt(history.length-1)},${yAt(max)} L ${xAt(0)},${yAt(max)} Z`} fill="var(--down)" opacity="0.08" />
-        <path d={d} fill="none" stroke="var(--down)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
-          style={{ filter: 'drop-shadow(0 0 6px #ef444450)' }} />
+        <path d={d + ` L ${xAt(history.length-1)},${yAt(max)} L ${xAt(0)},${yAt(max)} Z`} fill={lineColor} opacity="0.08" />
+        <path d={d} fill="none" stroke={lineColor} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
+          style={{ filter: `drop-shadow(0 0 6px ${glow})` }} />
         {tip && (
           <line x1={xAt(tipIdx)} x2={xAt(tipIdx)} y1={pt} y2={h - pb}
             stroke="rgba(255,255,255,0.18)" strokeWidth="1" strokeDasharray="3 3" />
         )}
         <circle cx={xAt(tipIdx)} cy={yAt(history[tipIdx])} r={tip ? 5 : 3.5}
-          fill="var(--down)" stroke="#0a0d12" strokeWidth="1.5"
+          fill={lineColor} stroke="#0a0d12" strokeWidth="1.5"
           style={{ transition: tip ? 'none' : 'r 150ms' }} />
       </svg>
       {tip && (
@@ -164,7 +193,7 @@ function RankChart({ history }: { history: number[] }) {
           zIndex: 10,
         }}>
           <span style={{ color: 'var(--fg-4)' }}>wk {tipIdx + 1} · </span>
-          <span style={{ color: 'var(--down)', fontWeight: 700 }}>#{history[tipIdx]}</span>
+          <span style={{ color: lineColor, fontWeight: 700 }}>#{history[tipIdx]}</span>
         </div>
       )}
     </div>
@@ -520,16 +549,45 @@ export default function SeoDashboardClient({
           <div>
             <div className="card card-pad-lg" style={{ marginBottom: 14 }}>
               <div className="card-head">
-                <h3>RANK · &lsquo;pickleball paddles&rsquo;</h3>
-                <span className="meta">{_daysAgoLabel(91)} · GSC</span>
-              </div>
-              <RankChart history={rankHistory} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 11.5 }}>
-                <span style={{ color: 'var(--fg-3)' }}>Current</span>
-                <span className="mono" style={{ color: 'var(--down)', fontWeight: 700 }}>
-                  position {rankHistory[rankHistory.length - 1]}
+                <h3>
+                  KEYWORD RANK · &ldquo;pickleball paddles&rdquo;
+                  <InfoTip text={`Where joola.com appears on Google when someone searches "pickleball paddles". #1 is the top result and the most-clicked spot — lower position number is better. We track this term because it is JOOLA's primary head term: roughly 60K US searches per month and the biggest single-keyword opportunity for paddle traffic.`} />
+                </h3>
+                <span className="meta" style={{ color: 'var(--fg-3)' }}>
+                  JOOLA&apos;s #1 target head term &middot; {_daysAgoLabel(91)} &middot; GSC
                 </span>
               </div>
+              <RankChart history={rankHistory} />
+              {(() => {
+                // Footer: TODAY value + directional delta vs start of the tracked window.
+                // In rank space, a DECREASE in position number is an IMPROVEMENT.
+                const startPos = rankHistory[0]
+                const currentPos = rankHistory[rankHistory.length - 1]
+                const delta = startPos != null && currentPos != null ? startPos - currentPos : null
+                const improved = delta != null && delta > 0.2
+                const worsened = delta != null && delta < -0.2
+                const trendColor = improved ? 'var(--joola)' : worsened ? 'var(--down)' : 'var(--fg-3)'
+                const trendLabel = delta == null
+                  ? 'lower is better'
+                  : improved
+                    ? `↑ improved from #${startPos} ~90 days ago`
+                    : worsened
+                      ? `↓ slipped from #${startPos} ~90 days ago`
+                      : `flat vs #${startPos} ~90 days ago`
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 12, gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span className="mono" style={{ fontSize: 9.5, color: 'var(--fg-4)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Today</span>
+                      <span className="mono" style={{ color: trendColor, fontWeight: 700, fontSize: 14 }}>
+                        #{currentPos} in Google
+                      </span>
+                    </div>
+                    <span className="mono" style={{ color: trendColor, fontSize: 11, textAlign: 'right' }}>
+                      {trendLabel}
+                    </span>
+                  </div>
+                )
+              })()}
             </div>
             <div className="card card-pad-lg">
               <div className="card-head">
