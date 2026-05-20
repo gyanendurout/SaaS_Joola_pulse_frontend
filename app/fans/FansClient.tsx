@@ -21,9 +21,10 @@ function tierClass(tier: string): string {
 }
 
 function scoreClass(score: number): string {
-  if (score >= 7.5) return 'score-badge score-top'
-  if (score >= 7.0) return 'score-badge score-high'
-  if (score >= 6.5) return 'score-badge score-mid'
+  // Scale is 0–100 (pipeline writes max 100; ambassador cutoff is 60).
+  if (score >= 75) return 'score-badge score-top'
+  if (score >= 60) return 'score-badge score-high'
+  if (score >= 45) return 'score-badge score-mid'
   return 'score-badge score-low'
 }
 
@@ -127,7 +128,7 @@ export default function FansClient({ allUsers, ambassadorList, superFans, regula
           <KpiCard variant="joola" label="TOTAL FANS" src="distinct commenters · all-time"
             tooltip="Total unique people who have ever commented on a JOOLA Instagram post"
             value={allUsers.length} delta="▲ +11.3%" dir="up" />
-          <KpiCard label="POTENTIAL AMBASSADORS" src="score ≥ 7.5"
+          <KpiCard label="POTENTIAL AMBASSADORS" src="score ≥ 60"
             tooltip="Fans who comment often, positively, and consistently — strong candidates to represent the brand"
             value={ambassadorList.length} delta="▲ +8%" dir="up" />
           <KpiCard label="SUPER FANS" src="top loyalty tier"
@@ -164,7 +165,7 @@ export default function FansClient({ allUsers, ambassadorList, superFans, regula
                     <th>USER</th>
                     <th>TIER</th>
                     <th>TOPIC<Tip text="What this fan talks about most in their comments" /></th>
-                    <th className="num sortable" onClick={() => doSort('score')}>SCORE<Tip text="Ambassador score 0–10 based on frequency, positivity, and consistency of engagement" />{arrow('score')}</th>
+                    <th className="num sortable" onClick={() => doSort('score')}>SCORE<Tip text="Ambassador score 0–100 based on frequency, positivity, and consistency of engagement. 60+ qualifies as a potential ambassador." />{arrow('score')}</th>
                     <th className="num sortable" onClick={() => doSort('comments')}>COMMENTS<Tip text="Total number of times this fan has commented" />{arrow('comments')}</th>
                     <th className="num sortable" onClick={() => doSort('sentiment')}>SENTIMENT<Tip text="Average positivity score of this fan's comments — higher is better" />{arrow('sentiment')}</th>
                     <th className="num sortable" onClick={() => doSort('intent')}>INTENT<Tip text="Number of times this fan showed buying interest in comments" />{arrow('intent')}</th>
@@ -289,8 +290,8 @@ export default function FansClient({ allUsers, ambassadorList, superFans, regula
           </div>
           <div className="card card-pad-lg">
             <div className="card-head">
-              <h3>AMBASSADOR SCORING<Tip text="How the 0–10 ambassador score is calculated. Each factor contributes 25%. A score of 7.5+ means they're ready to be approached as a brand advocate." /></h3>
-              <span className="meta">0–10 scale · all-time</span>
+              <h3>AMBASSADOR SCORING<Tip text="How the 0–100 ambassador score is calculated. Each factor contributes 25%. A score of 60+ means they're ready to be approached as a brand advocate." /></h3>
+              <span className="meta">0–100 scale · all-time</span>
             </div>
             {[
               { label: 'Comment frequency', note: 'How often they comment', detail: 'Fans who comment 5+ times per month score highest on this factor. Sparse commenters score lower. This factor rewards volume of engagement.' },

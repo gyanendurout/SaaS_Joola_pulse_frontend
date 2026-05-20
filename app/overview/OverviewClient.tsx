@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import KpiCard from '@/components/ui/KpiCard'
 import { Donut, DonutLegend } from '@/components/ui/Donut'
 import type { DonutSlice } from '@/components/ui/Donut'
@@ -67,8 +68,37 @@ function formatShort(v: number): string {
 
 type Section = 'kpis' | 'trends' | 'movers' | 'feed'
 
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes — real data re-fetch
+const CLOCK_TICK_MS = 60 * 1000           // 1 minute — only updates the "last refreshed" label
+
+function formatClock(d: Date): string {
+  const hh = d.getHours().toString().padStart(2, '0')
+  const mm = d.getMinutes().toString().padStart(2, '0')
+  return `${hh}:${mm}`
+}
+
 export default function OverviewClient({ data }: { data: OverviewData }) {
   const [section, setSection] = useState<Section>('kpis')
+  const router = useRouter()
+  // `lastRefreshed` tracks the last time we actually called `router.refresh()`.
+  // Initialised on the client only (avoids SSR/CSR hydration mismatch).
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
+  // `nowTick` forces a re-render every 60s so the "X min ago" label stays current
+  // even between the 5-minute data refreshes.
+  const [, setNowTick] = useState(0)
+
+  useEffect(() => {
+    setLastRefreshed(new Date())
+    const refreshId = setInterval(() => {
+      router.refresh()
+      setLastRefreshed(new Date())
+    }, REFRESH_INTERVAL_MS)
+    const clockId = setInterval(() => setNowTick((n) => n + 1), CLOCK_TICK_MS)
+    return () => {
+      clearInterval(refreshId)
+      clearInterval(clockId)
+    }
+  }, [router])
 
   const trendSeries: ChartSeries[] = [
     { name: 'Comments',       color: 'var(--yellow)', data: data.weeklyComments, area: true },
@@ -118,7 +148,7 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
           </div>
           <h1>BRAND <em>INTELLIGENCE</em></h1>
           <div className="sub">
-            Real-time view of JOOLA&apos;s presence across Instagram, YouTube, TikTok, X, and Reddit, plus organic search health and news mentions.
+            v1 dashboard — Instagram performance KPIs at top, with cross-platform sub-dashboards in the SOCIAL MEDIA section and SEO health below.
           </div>
         </div>
         <div className="head-actions">
@@ -132,42 +162,60 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
       {section === 'kpis' && (
         <>
           <div className="section">
+            {/* v1 scope banner — clarifies KPIs aggregate Instagram only */}
+            <div
+              className="card"
+              style={{
+                marginBottom: 14,
+                padding: '10px 14px',
+                background: 'rgba(245, 230, 37, 0.06)',
+                borderColor: 'rgba(245, 230, 37, 0.22)',
+                fontSize: 11.5,
+                color: 'var(--fg-3)',
+                lineHeight: 1.5,
+              }}
+            >
+              <strong style={{ color: 'var(--yellow)', letterSpacing: '0.04em' }}>v1 SCOPE</strong>{' '}
+              · Performance KPIs aggregate Instagram only. Cross-platform aggregates
+              (YouTube, TikTok, X, Reddit) are tracked on their dedicated pages in the
+              SOCIAL MEDIA section.
+            </div>
             <div className="kpi-grid">
               <KpiCard variant="joola" label="TOTAL POSTS" src="Instagram · last 13 wk"
                 tooltip="How many times JOOLA posted to Instagram in the last 13 weeks"
                 value={data.totalPosts} trend={data.trends.posts}
                 delta={'▲ +' + Math.round(data.totalPosts * 0.07) + ' (' + formatPct(7, true) + ')'}
                 dir="up" />
-              <KpiCard label="COMMENTS" src="all posts · last 13 wk"
+              <KpiCard label="COMMENTS" src="Instagram · last 13 wk"
                 tooltip="Total audience comments received across all Instagram posts in the last 13 weeks"
                 value={data.totalComments} trend={data.trends.comments}
                 delta={'▲ ' + formatPct(18.2, true)} dir="up" />
               <KpiCard
                 variant={data.avgEngagement < 0.03 ? 'warn' : 'joola'}
-                label="ENGAGEMENT RATE" src="(likes + comments) ÷ reach"
+                label="ENGAGEMENT RATE" src="Instagram · (likes + comments) ÷ reach"
                 tooltip="Engagement Rate = (likes + comments) ÷ people who saw the post. Example: a post seen by 10,000 people that got 600 likes + 50 comments = 6.5%. Benchmarks: 6%+ excellent, 3–6% healthy, under 3% needs attention."
                 value={+(data.avgEngagement * 100).toFixed(2)} unit="%"
                 trend={data.trends.engagement}
                 delta={'▼ ' + formatPct(-2.4, true)} dir="down" />
-              <KpiCard label="UNIQUE FANS" src="distinct commenters · 13 wk"
+              <KpiCard label="UNIQUE FANS" src="Instagram · distinct commenters · 13 wk"
                 tooltip="How many different people have commented on your posts — a growing number means you're reaching new audiences"
                 value={data.uniqueFans} trend={data.trends.fans}
                 delta={'▲ ' + formatPct(11.3, true)} dir="up" />
             </div>
             <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-              <KpiCard variant="joola" label="POTENTIAL AMBASSADORS" src="score ≥ 7.5 · all-time"
+              <KpiCard variant="joola" label="POTENTIAL AMBASSADORS" src="Instagram · score ≥ 7.5 · all-time"
                 tooltip="Fans who comment often, positively, and consistently — strong candidates to represent the brand as ambassadors"
                 value={data.ambassadors} trend={data.trends.ambassadors}
                 delta={'▲ +' + Math.max(1, Math.round(data.ambassadors * 0.08)) + ' (' + formatPct(8, true) + ')'}
                 dir="up" />
-              <KpiCard variant="danger" label="COMPLAINTS" src="AI-detected · 13 wk"
+              <KpiCard variant="danger" label="COMPLAINTS" src="Instagram · AI-detected · 13 wk"
                 tooltip="Negative comments that need a response — spikes signal a product issue, shipping problem, or PR event"
                 value={data.totalComplaints} trend={data.trends.complaints}
                 delta={'▲ ' + formatPct(4.2, true)} dir="down" />
               <div className={'kpi ' + (data.responseRate > 0 ? 'joola' : 'warn')}>
                 <div className="label">
                   <span>RESPONSE RATE</span>
-                  <span className="src">complaints · 48h SLA</span>
+                  <span className="src">Instagram complaints · 48h SLA</span>
                 </div>
                 <div className="row">
                   <div className="value">{Math.round(data.responseRate)}<span className="unit">%</span></div>
@@ -188,7 +236,7 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
               </div>
               <KpiCard
                 variant={data.avgResponseTimeMins == null ? 'warn' : data.avgResponseTimeMins <= 60 ? 'joola' : 'danger'}
-                label="AVG RESPONSE TIME" src="target ≤ 60 min · 13 wk"
+                label="AVG RESPONSE TIME" src="Instagram · target ≤ 60 min · 13 wk"
                 tooltip="How fast the team responds to complaints — under 60 minutes prevents bad experiences from spreading. Green = on target."
                 value={data.avgResponseTimeMins ?? '—'}
                 unit={data.avgResponseTimeMins != null ? ' min' : ''}
@@ -406,17 +454,23 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
         <div className="section">
           <div className="card card-pad-lg">
             <div className="card-head">
-              <h3>LIVE SIGNAL FEED<Tip text="Real-time summary of key brand events — complaints needing response, engagement milestones, ambassador signals, and audience growth." /></h3>
+              <h3>LIVE SIGNAL FEED<Tip text="Summary of key brand signals — complaints needing response, engagement milestones, ambassador signals, and audience reach. Auto-refreshes every 5 minutes." /></h3>
               <span className="meta">
                 <span className="live-pulse-dot" style={{ marginRight: 6 }} />
-                auto-refresh · last 24h
+                auto-refresh · every 5 min{lastRefreshed ? ` · last refreshed ${formatClock(lastRefreshed)}` : ''}
               </span>
             </div>
             <div>
               {[
-                { type: 'complaint', desc: `${data.totalComplaints} complaints detected across Instagram — ${Math.round(data.responseRate)}% responded`, when: 'today' },
-                { type: 'praise',    desc: `${formatShort(data.totalComments)} total comments in last 13 weeks — ${(data.avgEngagement * 100).toFixed(2)}% avg engagement rate`, when: 'last 13 wk' },
-                { type: 'fan',       desc: `${data.ambassadors} potential ambassadors identified (score ≥ 7.5)`, when: 'this week' },
+                // Scopes harmonised to match the actual upstream data windows:
+                // - Complaints + response rate are aggregated over the same 13-wk window
+                //   the rest of the KPIs use, NOT "today" (we don't have a 24h pipeline).
+                // - Comments/ER are 13-wk snapshot rollups.
+                // - Ambassadors is an all-time score-based flag (not "this week").
+                // - Unique fans is a distinct-commenter count across the tracked period.
+                { type: 'complaint', desc: `${data.totalComplaints} complaints detected across Instagram — ${Math.round(data.responseRate)}% responded`, when: 'last 13 wk' },
+                { type: 'praise',    desc: `${formatShort(data.totalComments)} total comments — ${(data.avgEngagement * 100).toFixed(2)}% avg engagement rate`, when: 'last 13 wk' },
+                { type: 'fan',       desc: `${data.ambassadors} potential ambassadors identified (score ≥ 7.5)`, when: 'all-time' },
                 { type: 'intent',    desc: `${formatShort(data.uniqueFans)} unique fans active in tracked period`, when: 'last 13 wk' },
               ].map((s, i) => (
                 <div className="signal" key={i}>
@@ -426,6 +480,21 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
                 </div>
               ))}
             </div>
+            {lastRefreshed && (
+              <div
+                className="mono"
+                style={{
+                  marginTop: 12,
+                  paddingTop: 10,
+                  borderTop: '1px solid var(--line)',
+                  fontSize: 10.5,
+                  color: 'var(--fg-4)',
+                  textAlign: 'right',
+                }}
+              >
+                Panel last refreshed at {formatClock(lastRefreshed)} · server data fetched at {data.lastSync}
+              </div>
+            )}
           </div>
         </div>
       )}

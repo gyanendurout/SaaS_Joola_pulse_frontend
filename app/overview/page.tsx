@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { format } from 'date-fns'
-import type { IgWeeklySnapshot, IgCommentAnalysis, IgPost, IgLoyalUser, IgComplaintLog } from '@/lib/types'
+import type { IgWeeklySnapshot, IgCommentAnalysis, IgPost, IgLoyalUser, IgComplaintLog, IgPostAnalysis } from '@/lib/types'
 import OverviewClient from './OverviewClient'
 import type { OverviewData } from './OverviewClient'
 
@@ -29,6 +29,7 @@ export default async function OverviewPage() {
     { data: complaints },
     { data: weeklySnapshots },
     { data: topPosts },
+    { data: postAnalysis },
   ] = await Promise.all([
     supabase.from('joola_ig_posts')
       .select('post_id, post_url, post_type, engagement_rate, day_of_week, hour_of_day, posted_at')
@@ -49,9 +50,12 @@ export default async function OverviewPage() {
       .returns<IgWeeklySnapshot[]>(),
     supabase.from('joola_ig_posts')
       .select('post_id, post_url, post_type, engagement_rate, like_count, comment_count, posted_at, caption, thumbnail_url')
-      .order('engagement_rate', { ascending: false })
+      .order('engagement_rate', { ascending: false, nullsFirst: false })
       .limit(5)
       .returns<IgPost[]>(),
+    supabase.from('joola_ig_post_analysis')
+      .select('post_id, content_theme')
+      .returns<Pick<IgPostAnalysis, 'post_id' | 'content_theme'>[]>(),
   ])
 
   // Normalize engagement_rate to fraction convention (see posts/page.tsx for rationale).
@@ -111,12 +115,37 @@ export default async function OverviewPage() {
     snaps.map((w) => (w as unknown as { purchase_intent_count?: number }).purchase_intent_count ?? 0),
   )
 
-  // Content theme momentum: last 13 weeks of dominant content theme
-  const themeMomentum = snaps.slice(-13).map((w) => ({
-    week: w.week_start,
-    theme: (w as unknown as { dominant_content_theme?: string | null }).dominant_content_theme ?? null,
-    posts: w.posts_published ?? 0,
-  }))
+  // Content theme momentum: last 13 weeks of dominant content theme.
+  // Backfill from joola_ig_post_analysis when the snapshot row stores null —
+  // tally content_theme across each week's posts (joined via posted_at) and
+  // pick the mode. Snapshot value wins when present. Mirrors the Weekly
+  // Digest pattern (BUG-014/015).
+  const themeByPost = new Map(
+    (postAnalysis ?? []).map((a) => [a.post_id, a.content_theme])
+  )
+  function modeThemeForWeek(weekStart: string, weekEnd: string): string | null {
+    const ws = new Date(weekStart).getTime()
+    const we = new Date(weekEnd).getTime() + 24 * 60 * 60 * 1000
+    const counts: Record<string, number> = {}
+    for (const p of postArr) {
+      if (!p.posted_at) continue
+      const t = new Date(p.posted_at).getTime()
+      if (t < ws || t >= we) continue
+      const theme = themeByPost.get(p.post_id)
+      if (!theme) continue
+      counts[theme] = (counts[theme] || 0) + 1
+    }
+    const top = Object.entries(counts).sort(([, a], [, b]) => b - a)[0]
+    return top ? top[0] : null
+  }
+  const themeMomentum = snaps.slice(-13).map((w) => {
+    const snapTheme = (w as unknown as { dominant_content_theme?: string | null }).dominant_content_theme ?? null
+    return {
+      week: w.week_start,
+      theme: snapTheme ?? modeThemeForWeek(w.week_start, w.week_end),
+      posts: w.posts_published ?? 0,
+    }
+  })
 
   const totalComments = snaps.reduce((acc, w) => acc + (w.total_comments ?? 0), 0)
 

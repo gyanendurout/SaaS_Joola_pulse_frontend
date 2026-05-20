@@ -122,6 +122,7 @@ export default function WeeklyDigestClient({
   }
 
   const weekLabel = `${format(new Date(current.week_start), 'MMM d')} – ${format(new Date(current.week_end), 'MMM d, yyyy')}`
+  const generatedLabel = format(new Date(), 'MMM d, yyyy')
 
   return (
     <div>
@@ -136,9 +137,16 @@ export default function WeeklyDigestClient({
             Auto-generated marketing report card for the week of <strong style={{ color: 'var(--fg)' }}>{weekLabel}</strong>.
             All metrics compared to the prior week. Designed for export to PDF or email.
           </div>
+          <div
+            className="print-only mono"
+            aria-hidden
+            style={{ display: 'none', fontSize: 10, color: '#555', marginTop: 4 }}
+          >
+            Generated {generatedLabel}
+          </div>
         </div>
-        <div className="head-actions">
-          <button className="btn btn-yellow" onClick={() => window.print()}>
+        <div className="head-actions" data-print="hide">
+          <button className="btn btn-yellow" data-print="hide" onClick={() => window.print()}>
             🖨 Print / PDF
           </button>
         </div>
@@ -435,8 +443,8 @@ export default function WeeklyDigestClient({
                     <td className="cell-num" style={{ color: 'var(--joola)', fontWeight: 600 }}>
                       {w.purchase_intent_count ?? 0}
                     </td>
-                    <td style={{ textTransform: 'capitalize', fontSize: 11, color: 'var(--fg-3)' }}>
-                      {(w.dominant_content_theme || '—').replace(/_/g, ' ')}
+                    <td style={{ fontSize: 11, color: 'var(--fg-3)' }}>
+                      {w.dominant_content_theme ? formatEnum(w.dominant_content_theme) : '—'}
                     </td>
                   </tr>
                 ))}

@@ -5,6 +5,7 @@ import KpiCard from '@/components/ui/KpiCard'
 import PostingTimeHeatmap from '@/components/PostingTimeHeatmap'
 import ContentCalendar from '@/components/ContentCalendar'
 import { Tip } from '@/components/ui/Tip'
+import { normalizeAthleteName } from '@/lib/format'
 import type { IgPost, IgPostAnalysis } from '@/lib/types'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -216,7 +217,11 @@ export default function PostsClient({
     const base = periodPosts.filter((p) => {
       if (typeFilter !== 'All' && (p.post_type ?? '').toLowerCase() !== typeFilter.toLowerCase()) return false
       if (athleteFilter !== 'all') {
-        const athletes = Array.isArray(p.athletes_shown) ? p.athletes_shown.map((a) => (a || '').toLowerCase().trim()) : []
+        // Normalize both sides of the comparison so "benjohns" in the post row
+        // matches the canonical "Ben Johns" stored in athleteFilter.
+        const athletes = Array.isArray(p.athletes_shown)
+          ? p.athletes_shown.map((a) => normalizeAthleteName(a))
+          : []
         if (!athletes.includes(athleteFilter)) return false
       }
       return true
@@ -255,9 +260,7 @@ export default function PostsClient({
           <select className="fld" value={athleteFilter} onChange={(e) => setAthleteFilter(e.target.value)}>
             <option value="all">All athletes ({athleteOptions.length})</option>
             {athleteOptions.map((a) => (
-              <option key={a} value={a} style={{ textTransform: 'capitalize' }}>
-                {a.replace(/\b\w/g, (c) => c.toUpperCase())}
-              </option>
+              <option key={a} value={a}>{a}</option>
             ))}
           </select>
           <select className="fld" value={period} onChange={(e) => setPeriod(e.target.value as PeriodKey)}>
@@ -329,6 +332,19 @@ export default function PostsClient({
                       if (!cell || cell.count === 0) {
                         return <td className="cell-num" key={t} style={{ color: 'var(--fg-4)' }}>—</td>
                       }
+                      // When posts exist for this (theme, type) but every row
+                      // has 0/null engagement_rate, the cell would render
+                      // "0.0% n=1" which is misleading — render an em-dash with
+                      // the sample count instead so users can tell there's no
+                      // ER signal vs no posts at all.
+                      if (cell.avgEr === 0) {
+                        return (
+                          <td className="cell-num" key={t} style={{ color: 'var(--fg-4)' }}>
+                            <span>—</span>
+                            <span className="mono" style={{ marginLeft: 4, fontSize: 10 }}>n={cell.count}</span>
+                          </td>
+                        )
+                      }
                       return (
                         <td className="cell-num" key={t}>
                           <span style={{ fontWeight: 600, color: cell.avgEr >= 0.06 ? 'var(--joola)' : cell.avgEr < 0.03 ? 'var(--down)' : 'var(--fg)' }}>
@@ -370,7 +386,7 @@ export default function PostsClient({
                   <tbody>
                     {sortedAthleteRows.map((a) => (
                       <tr key={a.name}>
-                        <td style={{ textTransform: 'capitalize', fontWeight: 600 }}>{a.name}</td>
+                        <td style={{ fontWeight: 600 }}>{a.name}</td>
                         <td className="cell-num">{a.count}</td>
                         <td className="cell-num" style={{
                           color: a.avgEr >= 0.06 ? 'var(--joola)' : a.avgEr < 0.03 ? 'var(--down)' : 'var(--fg)',

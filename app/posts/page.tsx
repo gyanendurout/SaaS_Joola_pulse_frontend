@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import PostsClient from './PostsClient'
 import type { IgPost, IgPostAnalysis, IgWeeklySnapshot } from '@/lib/types'
+import { normalizeAthleteName } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -168,13 +169,21 @@ export default async function PostsPage() {
   }).sort((a, b) => b.count - a.count)
 
   // ─── Athlete leaderboard ────────────────────────────────────────────────
+  // Canonicalize names with normalizeAthleteName so "benjohns" / "ben johns"
+  // / "Ben Johns" all collapse into a single row "Ben Johns". Without this
+  // the same athlete appears 2-3 times because the AI pipeline writes
+  // inconsistent variants into `athletes_shown`. Posts are de-duplicated per
+  // canonical name within each row so one post never contributes twice.
   const athleteAgg: Record<string, { count: number; er: number; views: number; likes: number }> = {}
   for (const p of enrichedPosts) {
     const athletes = p.athletes_shown
     if (!Array.isArray(athletes) || athletes.length === 0) continue
+    const seenForPost = new Set<string>()
     for (const rawName of athletes) {
-      const name = (rawName || '').toLowerCase().trim()
+      const name = normalizeAthleteName(rawName)
       if (!name) continue
+      if (seenForPost.has(name)) continue
+      seenForPost.add(name)
       if (!athleteAgg[name]) athleteAgg[name] = { count: 0, er: 0, views: 0, likes: 0 }
       athleteAgg[name].count += 1
       athleteAgg[name].er += p.engagement_rate || 0

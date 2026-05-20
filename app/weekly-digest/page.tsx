@@ -6,8 +6,28 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 export default async function WeeklyDigestPage() {
+  // Fetch snapshots first so we know the date range we need to cover when
+  // pulling posts for the 8-week history theme backfill.
+  const { data: snapshotsPre } = await supabase
+    .from('joola_ig_weekly_snapshot')
+    .select('*')
+    .order('week_start', { ascending: false })
+    .limit(8)
+    .returns<IgWeeklySnapshot[]>()
+
+  const snapshotsArr = snapshotsPre ?? []
+  // Earliest week start in the 8-week history — used as the cutoff for the
+  // posts query so we have enough rows to backfill TOP THEME for every row.
+  const oldestWeekStartIso = snapshotsArr.length > 0
+    ? snapshotsArr[snapshotsArr.length - 1].week_start
+    : null
+
+  const postsQuery = supabase
+    .from('joola_ig_posts')
+    .select('post_id, post_url, post_type, posted_at, caption, thumbnail_url, like_count, comment_count, view_count, engagement_rate')
+    .order('posted_at', { ascending: false })
+
   const [
-    { data: snapshots },
     { data: posts },
     { data: postAnalysis },
     { data: wishlist },
@@ -16,18 +36,10 @@ export default async function WeeklyDigestPage() {
     { data: analysis },
     { data: comments },
   ] = await Promise.all([
-    supabase
-      .from('joola_ig_weekly_snapshot')
-      .select('*')
-      .order('week_start', { ascending: false })
-      .limit(8)
-      .returns<IgWeeklySnapshot[]>(),
-    supabase
-      .from('joola_ig_posts')
-      .select('post_id, post_url, post_type, posted_at, caption, thumbnail_url, like_count, comment_count, view_count, engagement_rate')
-      .order('posted_at', { ascending: false })
-      .limit(50)
-      .returns<IgPost[]>(),
+    (oldestWeekStartIso
+      ? postsQuery.gte('posted_at', oldestWeekStartIso).limit(500)
+      : postsQuery.limit(50)
+    ).returns<IgPost[]>(),
     supabase
       .from('joola_ig_post_analysis')
       .select('post_id, content_theme')
@@ -72,7 +84,7 @@ export default async function WeeklyDigestPage() {
     return { ...w, avg_engagement_rate: er > 1 ? er / 100 : er }
   }
 
-  const snaps = (snapshots ?? []).map(normSnapEr)
+  const snapsRaw = snapshotsArr.map(normSnapEr)
   const postArr = (posts ?? []).map(normEr)
   const postAnalysisArr = postAnalysis ?? []
   const wishArr = wishlist ?? []
@@ -82,15 +94,37 @@ export default async function WeeklyDigestPage() {
   const commentArr = comments ?? []
 
   // Build a post_id → content_theme map so we can compute the dominant theme
-  // for the current week even when the snapshot's dominant_content_theme is null.
+  // for each week even when the snapshot's dominant_content_theme is null.
   const themeByPost = new Map(postAnalysisArr.map((a) => [a.post_id, a.content_theme]))
+
+  // Backfill dominant_content_theme for every snapshot in the 8-week history
+  // when the snapshot row stores null/empty. Tally content_theme across that
+  // week's posts (joined via posted_at) and pick the mode. Snapshot value wins
+  // when present. Mirrors the Overview page pattern.
+  const snaps = snapsRaw.map((w) => {
+    if (w.dominant_content_theme) return w
+    const ws = new Date(w.week_start).getTime()
+    const we = new Date(w.week_end).getTime() + 24 * 60 * 60 * 1000
+    const themeCounts: Record<string, number> = {}
+    for (const p of postArr) {
+      if (!p.posted_at) continue
+      const t = new Date(p.posted_at).getTime()
+      if (t < ws || t >= we) continue
+      const theme = themeByPost.get(p.post_id)
+      if (!theme) continue
+      themeCounts[theme] = (themeCounts[theme] || 0) + 1
+    }
+    const top = Object.entries(themeCounts).sort(([, a], [, b]) => b - a)[0]
+    return top ? { ...w, dominant_content_theme: top[0] } : w
+  })
 
   // Latest week + prev week for deltas
   let current = snaps[0]
   const previous = snaps[1]
 
-  // Backfill avg_engagement_rate and dominant_content_theme from the underlying
-  // post data when the snapshot row stores 0 / null for those fields (BUG-014/015).
+  // Backfill avg_engagement_rate from the underlying post data when the
+  // snapshot row stores 0 / null for the current week (BUG-014/015).
+  // Theme backfill is already applied to every week in the `snaps` map above.
   if (current) {
     const ws = new Date(current.week_start).getTime()
     const we = new Date(current.week_end).getTime() + 24 * 60 * 60 * 1000
@@ -102,16 +136,6 @@ export default async function WeeklyDigestPage() {
     if ((!current.avg_engagement_rate || current.avg_engagement_rate === 0) && weekPosts.length > 0) {
       const avgER = weekPosts.reduce((a, p) => a + (p.engagement_rate || 0), 0) / weekPosts.length
       current = { ...current, avg_engagement_rate: avgER }
-    }
-    if (!current.dominant_content_theme && weekPosts.length > 0) {
-      const themeCounts: Record<string, number> = {}
-      for (const p of weekPosts) {
-        const theme = themeByPost.get(p.post_id)
-        if (!theme) continue
-        themeCounts[theme] = (themeCounts[theme] || 0) + 1
-      }
-      const top = Object.entries(themeCounts).sort(([, a], [, b]) => b - a)[0]
-      if (top) current = { ...current, dominant_content_theme: top[0] }
     }
   }
 

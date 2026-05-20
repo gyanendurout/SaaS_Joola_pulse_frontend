@@ -833,3 +833,94 @@ th.sortable .sort-arrow.active { opacity: 1; color: var(--yellow); }
   .briefing-strip { grid-template-columns: 1fr; }
   .comment-row { grid-template-columns: 1fr; }
 }
+
+/* ===== Print (Weekly Digest export-to-PDF) ===== */
+@media print {
+  @page { size: A4 portrait; margin: 12mm; }
+
+  /* Backgrounds: ensure no dark theme leaks into print */
+  html, body, .v2-root, .shell, .main, .main.collapsed, .main-inner {
+    background: #ffffff !important;
+    color: #111 !important;
+  }
+  .app-bg, .dot-grid { display: none !important; }
+
+  /* Hide app chrome that should never print */
+  .sidebar,
+  .sidebar.collapsed,
+  .sidebar-foot,
+  .topbar,
+  .section-nav,
+  .head-actions,
+  .live-pulse-dot,
+  [data-print="hide"] {
+    display: none !important;
+  }
+
+  /* Collapse the main column to full width */
+  .main,
+  .main.collapsed {
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .main-inner {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Card / KPI styling for white paper */
+  .card,
+  .kpi {
+    background: #ffffff !important;
+    border: 1px solid #ccc !important;
+    color: #111 !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .card-pad-lg { padding: 10px !important; }
+
+  /* Text colors: force readable on white but keep accent vars for highlights */
+  .card *, .kpi * { color: #111 !important; }
+  .kpi .label, .card-head h3, .card-head .meta { color: #555 !important; }
+  .kpi.joola .value,
+  .kpi.warn .value,
+  .kpi.danger .value,
+  .pill, .pill-red, .pill-amber, .pill-yellow, .pill-ghost,
+  .you-badge, .tlink,
+  .mono[style*="--joola"], .mono[style*="--yellow"], .mono[style*="--red"] {
+    color: inherit !important;
+  }
+
+  /* Sections: avoid splitting key blocks across pages */
+  .section { margin: 10px 0 !important; page-break-inside: avoid; break-inside: avoid; }
+  .card-grid { gap: 8px !important; }
+  .kpi-grid {
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  /* Typography one notch down for print */
+  h1 { font-size: 18pt !important; line-height: 1.15 !important; margin: 0 0 4pt !important; }
+  h2 { font-size: 13pt !important; }
+  h3 { font-size: 11pt !important; }
+  .page-head { margin-bottom: 8pt !important; page-break-after: avoid; }
+  .page-head .sub { font-size: 10pt !important; }
+  .eyebrow { font-size: 9pt !important; }
+
+  /* Tables: smaller, no zebra/highlight bleed */
+  table.data { font-size: 10pt !important; page-break-inside: auto; }
+  table.data th, table.data td { padding: 4px 6px !important; }
+  table.data tr { page-break-inside: avoid; break-inside: avoid; }
+  table.data tr.highlight { background: #f3f3f3 !important; }
+
+  /* Hide screen-only chrome that may sit inside content */
+  .btn, .fld, .tabs { display: none !important; }
+
+  /* Links: render the URL in print? No — keep concise. Use color black for anchors */
+  a, a:visited { color: #111 !important; text-decoration: none !important; }
+
+  /* Print-only elements (e.g. "Generated …" timestamp) */
+  .print-only { display: block !important; }
+}
