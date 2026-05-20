@@ -1,5 +1,5 @@
 # JOOLA Pulse — Own-Brand Digital Intelligence
-<!-- redeploy: 2026-05-20T19:55 -->
+<!-- redeploy: 2026-05-20T21:01 -->
 
 
 Next.js 14 (App Router) dashboard reading from Supabase tables (`joola_ig_*`). Designed as a single deployable unit for **Vercel** or **Railway**.
