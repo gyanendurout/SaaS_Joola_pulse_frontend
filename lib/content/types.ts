@@ -38,7 +38,7 @@ export type Audience =
 
 export type Length = 'short' | 'medium' | 'long'
 
-export type CtaGoal = 'shop' | 'signup' | 'reply' | 'no_cta'
+export type CtaGoal = 'shop' | 'signup' | 'reply' | 'none'
 
 export type SignalSource = 'seo' | 'top_posts' | 'news' | 'reddit' | 'free_prompt'
 
@@ -67,13 +67,21 @@ export interface SeoSignal {
   difficulty: number | null
 }
 
+export type TopPostPlatform = 'instagram' | 'tiktok' | 'twitter' | 'youtube'
+
 export interface TopPostSignal {
   post_id: string
+  platform: TopPostPlatform
   content_theme: string | null
-  engagement_rate: number // 0–1 fraction
+  engagement_rate: number // 0–1 fraction (best-effort across platforms)
+  likes: number | null
+  views: number | null
+  comments: number | null
   caption_first_line: string | null
   thumbnail_url: string | null
   post_type: string | null
+  posted_at: string | null
+  url: string | null
 }
 
 export interface NewsSignal {
@@ -107,7 +115,8 @@ export interface SignalsPreview {
   seo_keywords: SeoSignal[]
   top_posts: TopPostSignal[]
   news: NewsSignal[]
-  reddit: RedditSignal[]
+  /** @deprecated kept for backward compat with old draft snapshots; UI no longer surfaces Reddit. */
+  reddit?: RedditSignal[]
 }
 
 // =============================================================================
@@ -314,7 +323,7 @@ export const CTA_OPTIONS: { value: CtaGoal; label: string }[] = [
   { value: 'shop', label: 'Shop / product link' },
   { value: 'signup', label: 'Sign-up / waitlist' },
   { value: 'reply', label: 'Invite reply' },
-  { value: 'no_cta', label: 'No CTA' },
+  { value: 'none', label: 'No CTA' },
 ]
 
 export const FORMAT_OPTIONS: { value: ContentType; label: string; description: string }[] = [

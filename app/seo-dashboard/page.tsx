@@ -80,10 +80,12 @@ async function fetchSeoData() {
       supabase.from('issues')
         .select('id, issue_code, issue_type, severity, title, description, category, url, source, recommendation')
         .limit(60),
+      // Only real columns — table doesn't have difficulty / previous_position / is_gap / intent.
+      // Pull 400 — TT terms dominate by volume and will be filtered out below.
       supabase.from('domain_ranked_keywords')
-        .select('id, keyword, search_volume, position, previous_position, difficulty, is_gap, intent, traffic')
+        .select('id, keyword, search_volume, position, traffic')
         .order('search_volume', { ascending: false })
-        .limit(100),
+        .limit(400),
       supabase.from('pages')
         .select('url, title, meta_description, h1, word_count, is_indexable')
         .limit(15),
@@ -107,10 +109,42 @@ async function fetchSeoData() {
       } catch { /* ignore */ }
     }
 
+    // JOOLA Pulse is pickleball-only. JOOLA the brand also sells table-tennis
+    // gear so the table is full of TT terms that we don't want here.
+    const PICKLEBALL_KW = /\b(pickle\s*ball|pickleball|ben\s*johns|anna\s*leigh|tyson\s*mcguffin|hyperion|perseus|joola)\b/i
+    const TT_KW = /\b(table[\s-]?tennis|tennis[\s-]?table|ping[\s-]?pong|pong[\s-]?ping|\btt\b|tt[\s-]?(?:table|ball|rubber|blade)|(?:foldable|outdoor|indoor)\s+tt|tennis\s+(?:equipment|sport|racket|racquet|paddle|ball|rubber|blade)|stiga|butterfly|killerspin)\b/i
+    // Dedupe by keyword — table can have multiple position snapshots per keyword.
+    const seenKwDash = new Map<string, { id: string; keyword: string; search_volume: number | null; position: number | null; traffic: number | null }>()
+    for (const r of (keywordsRes.data ?? []) as { id: string; keyword: string; search_volume: number | null; position: number | null; traffic: number | null }[]) {
+      const k = (r.keyword ?? '').trim().toLowerCase()
+      if (!k) continue
+      if (TT_KW.test(k)) continue
+      if (!PICKLEBALL_KW.test(k)) continue
+      const prev = seenKwDash.get(k)
+      if (!prev) { seenKwDash.set(k, r); continue }
+      const prevVol = prev.search_volume ?? 0
+      const nextVol = r.search_volume ?? 0
+      if (nextVol > prevVol) seenKwDash.set(k, r)
+      else if (nextVol === prevVol && (r.position ?? 9999) < (prev.position ?? 9999)) seenKwDash.set(k, r)
+    }
+    const keywords: SeoKeyword[] = Array.from(seenKwDash.values())
+      .sort((a, b) => (b.search_volume ?? 0) - (a.search_volume ?? 0))
+      .map(r => ({
+        id: r.id,
+        keyword: r.keyword,
+        search_volume: r.search_volume ?? 0,
+        position: r.position,
+        previous_position: null,
+        difficulty: null,
+        is_gap: r.position == null,
+        intent: undefined,
+        traffic: r.traffic,
+      }))
+
     return {
       run,
       issues: (issuesRes.data ?? []) as SeoIssue[],
-      keywords: (keywordsRes.data ?? []) as SeoKeyword[],
+      keywords,
       pages: (pagesRes.data ?? []) as OnPageItem[],
       competitors: (competitorsRes.data ?? []) as CompetitorDomain[],
       gap: gapRes.data?.[0] ?? null,

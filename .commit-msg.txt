@@ -1,0 +1,27 @@
+feat(content): sync Content Studio module, sidebar Drafts badge, influencer + overview UX fixes
+
+Adds the full Content Studio path that was missing from staging:
+- lib/content/recommend.ts (NEW) - AI recommendation engine for tone/audience/length
+- lib/content/types.ts - CtaGoal 'none' alignment, multi-platform TopPostSignal,
+  optional/deprecated reddit field on SignalsPreview
+- app/content-generation/text/page.tsx - cross-platform JOOLA-brand-id filtered
+  fetch (IG/TikTok/X/YouTube), pickleball SEO filter, news limit 150
+- app/content-generation/text/[id]/{page,DraftEditorClient}.tsx (NEW) - draft
+  editor route + client with source-snapshot panel
+- components/content/SignalPickerTabs.tsx - 4 tabs (Free/News/Top Posts/SEO),
+  platform dropdown, sort dropdown, JOOLA-only news toggle
+- components/content/SignalRow.tsx - platform-aware variants (no more Reddit)
+
+Sidebar + UX fixes:
+- components/DashboardShell.tsx - Drafts badge now fetches its own count from
+  /seo-api/content/drafts so it stays correct outside the Content Hub page
+- app/influencers/InfluencersClient.tsx - empty platform cards explain "data
+  collection not yet set up"; AI-enrichment-pending banner above the posts
+  table when sentiment + is_sponsored are both null across visible rows
+- app/overview/OverviewClient.tsx - Response Rate KPI now switches to warn
+  variant and shows "no JOOLA replies tracked yet" instead of a hardcoded
+  fake "+4.2pp" delta when the rate is 0
+- app/seo-dashboard/page.tsx - pickleball-only keyword filter so non-pickleball
+  rows (table tennis, ping pong) never reach the dashboard
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>

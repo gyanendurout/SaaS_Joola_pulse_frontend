@@ -223,12 +223,18 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
                 <div style={{ fontSize: 10, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>
                   athletes connected
                 </div>
-                <div style={{ marginTop: 12, fontSize: 11, color: 'var(--fg-3)', lineHeight: 1.6 }}>
-                  <div>{stats.posts} posts</div>
-                  <div>{fmt(stats.likes)} likes</div>
-                  <div>{fmt(stats.views)} views</div>
-                  {stats.reach > 0 && <div>{fmt(stats.reach)} reach</div>}
-                </div>
+                {isLive ? (
+                  <div style={{ marginTop: 12, fontSize: 11, color: 'var(--fg-3)', lineHeight: 1.6 }}>
+                    <div>{stats.posts} posts</div>
+                    <div>{fmt(stats.likes)} likes</div>
+                    <div>{fmt(stats.views)} views</div>
+                    {stats.reach > 0 && <div>{fmt(stats.reach)} reach</div>}
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 12, fontSize: 11, color: 'var(--fg-4)', lineHeight: 1.5, fontStyle: 'italic' }}>
+                    Athletes have verified accounts on this platform, but data collection is not yet set up.
+                  </div>
+                )}
               </div>
             )
           })}
@@ -426,8 +432,26 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
           placeholder="Search posts or athletes…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{ width: '100%', marginBottom: 16, boxSizing: 'border-box' }}
+          style={{ width: '100%', marginBottom: 12, boxSizing: 'border-box' }}
         />
+        {filteredPosts.length > 0 && filteredPosts.every(p => !p.sentiment && !p.is_sponsored) && (
+          <div
+            style={{
+              marginBottom: 14,
+              padding: '8px 12px',
+              background: 'var(--bg-3)',
+              border: '1px dashed var(--line)',
+              borderRadius: 6,
+              fontSize: 11,
+              color: 'var(--fg-4)',
+              lineHeight: 1.5,
+            }}
+          >
+            <strong style={{ color: 'var(--fg-2)' }}>AI enrichment pending</strong> — sentiment and sponsored flags
+            haven't run on influencer posts yet, so those columns are blank. They'll populate once the next
+            enrichment pass completes.
+          </div>
+        )}
         {filteredPosts.length === 0 ? (
           <div className="empty">No posts match your filters.</div>
         ) : (

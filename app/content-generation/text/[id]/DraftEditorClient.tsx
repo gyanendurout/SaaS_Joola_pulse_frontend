@@ -332,8 +332,9 @@ function SaveIndicator({
 function SourceSnapshot({ draft }: { draft: Draft }) {
   const [open, setOpen] = useState(false)
   const snap = draft.source_signal_snapshot
+  const redditCount = snap?.reddit?.length ?? 0
   const hasAny = snap && (
-    snap.seo_keywords.length + snap.top_posts.length + snap.news.length + snap.reddit.length > 0
+    snap.seo_keywords.length + snap.top_posts.length + snap.news.length + redditCount > 0
   )
   if (!hasAny) return null
 
@@ -347,7 +348,7 @@ function SourceSnapshot({ draft }: { draft: Draft }) {
         >
           <h3>SOURCE SIGNALS{open ? '' : ''}</h3>
           <span className="meta">
-            {snap!.seo_keywords.length} SEO · {snap!.top_posts.length} posts · {snap!.news.length} news · {snap!.reddit.length} reddit
+            {snap!.seo_keywords.length} SEO · {snap!.top_posts.length} posts · {snap!.news.length} news{redditCount > 0 ? ` · ${redditCount} reddit` : ''}
             <span style={{ marginLeft: 12, color: 'var(--yellow)' }}>{open ? '▴ Hide' : '▾ Show'}</span>
           </span>
         </div>

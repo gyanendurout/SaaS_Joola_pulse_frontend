@@ -110,7 +110,7 @@ function isItemActive(item: NavItem, pathname: string): boolean {
 
 export default function DashboardShell({
   children,
-  draftCount = 0,
+  draftCount: draftCountProp,
 }: {
   children: React.ReactNode
   draftCount?: number
@@ -121,6 +121,20 @@ export default function DashboardShell({
   const [hydrated, setHydrated] = useState(false)
   const [nowStr, setNowStr] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [fetchedCount, setFetchedCount] = useState<number | null>(null)
+  const draftCount = draftCountProp ?? fetchedCount ?? 0
+
+  useEffect(() => {
+    if (draftCountProp !== undefined) return
+    const ac = new AbortController()
+    fetch('/seo-api/content/drafts?limit=1', { signal: ac.signal })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => {
+        if (j && typeof j.total === 'number') setFetchedCount(j.total)
+      })
+      .catch(() => { /* ignore */ })
+    return () => ac.abort()
+  }, [draftCountProp, pathname])
 
   // Compute which parents should auto-expand based on active route
   const autoExpandIds = useMemo(() => {

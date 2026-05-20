@@ -3,7 +3,6 @@
 import { sentimentColor } from '@/lib/format'
 import type {
   NewsSignal,
-  RedditSignal,
   SeoSignal,
   TopPostSignal,
 } from '@/lib/content/types'
@@ -12,12 +11,32 @@ type Variant =
   | { kind: 'seo'; row: SeoSignal }
   | { kind: 'top_post'; row: TopPostSignal }
   | { kind: 'news'; row: NewsSignal }
-  | { kind: 'reddit'; row: RedditSignal }
 
 interface Props {
   variant: Variant
   selected: boolean
   onToggle: () => void
+}
+
+function fmtNum(n: number | null | undefined): string {
+  if (n == null) return '—'
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
+  return String(n)
+}
+
+const PLATFORM_LABEL: Record<TopPostSignal['platform'], string> = {
+  instagram: 'IG',
+  tiktok: 'TT',
+  twitter: 'X',
+  youtube: 'YT',
+}
+
+const PLATFORM_COLOR: Record<TopPostSignal['platform'], string> = {
+  instagram: '#E1306C',
+  tiktok: '#69C9D0',
+  twitter: '#1DA1F2',
+  youtube: '#FF0000',
 }
 
 function rowShell(
@@ -102,7 +121,28 @@ export function SignalRow({ variant, selected, onToggle }: Props) {
 
   if (variant.kind === 'top_post') {
     const r = variant.row
-    const erPct = (r.engagement_rate * 100).toFixed(1)
+    const platformBadge = (
+      <span
+        className="pill"
+        style={{
+          background: `${PLATFORM_COLOR[r.platform]}22`,
+          color: PLATFORM_COLOR[r.platform],
+          fontSize: 9.5,
+          padding: '1px 6px',
+          fontWeight: 700,
+          flexShrink: 0,
+        }}
+      >
+        {PLATFORM_LABEL[r.platform]}
+      </span>
+    )
+    // Show platform-native engagement: IG = ER, others = views/likes
+    const engagement = r.platform === 'instagram'
+      ? <span style={{ color: 'var(--joola)' }}>ER {(r.engagement_rate * 100).toFixed(1)}%</span>
+      : <>
+          {r.views != null && <span>{fmtNum(r.views)} views</span>}
+          {r.likes != null && <span>♥ {fmtNum(r.likes)}</span>}
+        </>
     return rowShell(
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
         {r.thumbnail_url ? (
@@ -118,13 +158,16 @@ export function SignalRow({ variant, selected, onToggle }: Props) {
           <div style={{ width: 44, height: 44, borderRadius: 4, background: 'var(--bg-3)', flexShrink: 0 }} />
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12, color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {r.caption_first_line || '(no caption)'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {platformBadge}
+            <div style={{ fontSize: 12, color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+              {r.caption_first_line || '(no caption)'}
+            </div>
           </div>
-          <div className="mono" style={{ fontSize: 10.5, color: 'var(--fg-4)', marginTop: 3, display: 'flex', gap: 10 }}>
-            <span style={{ color: 'var(--joola)' }}>ER {erPct}%</span>
+          <div className="mono" style={{ fontSize: 10.5, color: 'var(--fg-4)', marginTop: 3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {engagement}
             {r.content_theme && <span>{r.content_theme}</span>}
-            {r.post_type && <span>· {r.post_type}</span>}
+            {r.post_type && r.platform === 'instagram' && <span>· {r.post_type}</span>}
           </div>
         </div>
       </div>,
@@ -134,52 +177,25 @@ export function SignalRow({ variant, selected, onToggle }: Props) {
     )
   }
 
-  if (variant.kind === 'news') {
-    const r = variant.row
-    const sentColor = sentimentColor(r.sentiment)
-    return rowShell(
-      <>
-        <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 600, lineHeight: 1.35 }}>
-          {r.title}
-        </div>
-        <div className="mono" style={{ fontSize: 10.5, color: 'var(--fg-4)', marginTop: 4, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          {r.sentiment && (
-            <span style={{ color: sentColor, textTransform: 'capitalize' }}>● {r.sentiment}</span>
-          )}
-          {r.is_joola_mention && <span style={{ color: 'var(--yellow)' }}>JOOLA</span>}
-          {r.importance_score != null && <span>imp {r.importance_score}</span>}
-          {r.suggested_action && <span style={{ color: 'var(--fg-3)' }}>{r.suggested_action}</span>}
-        </div>
-      </>,
-      selected,
-      null,
-      onToggle,
-    )
-  }
-
-  // Reddit
+  // news
   const r = variant.row
-  const tint = r.is_crisis ? 'rgba(239,68,68,0.45)' : null
+  const sentColor = sentimentColor(r.sentiment)
   return rowShell(
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 600, lineHeight: 1.35, flex: 1 }}>
-          {r.title}
-        </div>
-        {r.is_crisis && (
-          <span className="pill" style={{ background: 'rgba(239,68,68,0.18)', color: '#ff6464', fontSize: 9.5, padding: '1px 6px' }}>CRISIS</span>
-        )}
-        {!r.is_crisis && r.is_opportunity && (
-          <span className="pill" style={{ background: 'rgba(34,197,94,0.15)', color: 'var(--joola)', fontSize: 9.5, padding: '1px 6px' }}>OPP</span>
-        )}
+      <div style={{ fontSize: 12.5, color: 'var(--fg)', fontWeight: 600, lineHeight: 1.35 }}>
+        {r.title}
       </div>
-      <div className="mono" style={{ fontSize: 10.5, color: 'var(--fg-4)', marginTop: 4, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <span>r/{r.subreddit}</span>
-        {r.topics && r.topics.length > 0 && <span>{r.topics.slice(0, 3).join(', ')}</span>}
+      <div className="mono" style={{ fontSize: 10.5, color: 'var(--fg-4)', marginTop: 4, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        {r.sentiment && (
+          <span style={{ color: sentColor, textTransform: 'capitalize' }}>● {r.sentiment}</span>
+        )}
+        {r.is_joola_mention && <span style={{ color: 'var(--yellow)' }}>JOOLA</span>}
+        {r.importance_score != null && <span>imp {r.importance_score}</span>}
+        {r.suggested_action && <span style={{ color: 'var(--fg-3)' }}>{r.suggested_action}</span>}
       </div>
     </>,
     selected,
-    tint,
+    null,
     onToggle,
   )
 }

@@ -6,6 +6,7 @@ import type {
   SelectedSignals,
   SignalSource,
   SignalsPreview,
+  TopPostPlatform,
 } from '@/lib/content/types'
 
 interface Props {
@@ -18,12 +19,36 @@ interface Props {
   onFreePromptChange: (v: string) => void
 }
 
+// 4 tabs — Reddit dropped. Order: most-common-entry first.
 const TABS: { value: SignalSource; label: string }[] = [
-  { value: 'seo', label: 'SEO' },
-  { value: 'top_posts', label: 'Top Posts' },
-  { value: 'news', label: 'News' },
-  { value: 'reddit', label: 'Reddit' },
   { value: 'free_prompt', label: 'Free Prompt' },
+  { value: 'news', label: 'News' },
+  { value: 'top_posts', label: 'Top Posts' },
+  { value: 'seo', label: 'SEO' },
+]
+
+const PLATFORMS: { value: TopPostPlatform; label: string }[] = [
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'twitter', label: 'Twitter / X' },
+  { value: 'youtube', label: 'YouTube' },
+]
+
+type TopPostSortKey = 'engagement' | 'likes' | 'views' | 'comments' | 'recent'
+const SORT_OPTIONS: { value: TopPostSortKey; label: string }[] = [
+  { value: 'engagement', label: 'Engagement' },
+  { value: 'likes', label: 'Likes' },
+  { value: 'views', label: 'Views' },
+  { value: 'comments', label: 'Comments' },
+  { value: 'recent', label: 'Most recent' },
+]
+
+type SentimentFilter = 'all' | 'positive' | 'neutral' | 'negative'
+const SENT_FILTERS: { value: SentimentFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'positive', label: 'Positive' },
+  { value: 'neutral', label: 'Neutral' },
+  { value: 'negative', label: 'Negative' },
 ]
 
 export function SignalPickerTabs({
@@ -38,42 +63,73 @@ export function SignalPickerTabs({
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
 
+  // News-specific filters
+  const [newsSent, setNewsSent] = useState<SentimentFilter>('all')
+  const [newsJoolaOnly, setNewsJoolaOnly] = useState(false)
+
+  // Top Posts platform filter
+  const [platform, setPlatform] = useState<TopPostPlatform>('instagram')
+  const [sortKey, setSortKey] = useState<TopPostSortKey>('engagement')
+
   const filteredSeo = useMemo(() => {
     if (!q) return preview.seo_keywords
     return preview.seo_keywords.filter(r => r.keyword.toLowerCase().includes(q))
   }, [preview.seo_keywords, q])
 
   const filteredTopPosts = useMemo(() => {
-    if (!q) return preview.top_posts
-    return preview.top_posts.filter(r =>
-      (r.caption_first_line ?? '').toLowerCase().includes(q) ||
-      (r.content_theme ?? '').toLowerCase().includes(q),
-    )
-  }, [preview.top_posts, q])
+    let rows = preview.top_posts.filter(r => r.platform === platform)
+    if (q) {
+      rows = rows.filter(r =>
+        (r.caption_first_line ?? '').toLowerCase().includes(q) ||
+        (r.content_theme ?? '').toLowerCase().includes(q),
+      )
+    }
+    const sortFn: Record<TopPostSortKey, (a: typeof rows[number], b: typeof rows[number]) => number> = {
+      engagement: (a, b) => (b.engagement_rate ?? 0) - (a.engagement_rate ?? 0),
+      likes:      (a, b) => (b.likes ?? 0) - (a.likes ?? 0),
+      views:      (a, b) => (b.views ?? 0) - (a.views ?? 0),
+      comments:   (a, b) => (b.comments ?? 0) - (a.comments ?? 0),
+      recent:     (a, b) => (b.posted_at ?? '').localeCompare(a.posted_at ?? ''),
+    }
+    return [...rows].sort(sortFn[sortKey])
+  }, [preview.top_posts, platform, sortKey, q])
 
   const filteredNews = useMemo(() => {
-    if (!q) return preview.news
-    return preview.news.filter(r =>
-      r.title.toLowerCase().includes(q) ||
-      (r.ai_summary ?? '').toLowerCase().includes(q),
-    )
-  }, [preview.news, q])
-
-  const filteredReddit = useMemo(() => {
-    if (!q) return preview.reddit
-    return preview.reddit.filter(r =>
-      r.title.toLowerCase().includes(q) ||
-      r.subreddit.toLowerCase().includes(q),
-    )
-  }, [preview.reddit, q])
+    let rows = preview.news
+    if (newsSent !== 'all') {
+      rows = rows.filter(r => {
+        const s = (r.sentiment ?? '').toLowerCase()
+        if (newsSent === 'positive') return s.includes('positive')
+        if (newsSent === 'negative') return s.includes('negative')
+        return s === 'neutral' || s === ''
+      })
+    }
+    if (newsJoolaOnly) {
+      rows = rows.filter(r => r.is_joola_mention)
+    }
+    if (q) {
+      rows = rows.filter(r =>
+        r.title.toLowerCase().includes(q) ||
+        (r.ai_summary ?? '').toLowerCase().includes(q),
+      )
+    }
+    return rows
+  }, [preview.news, newsSent, newsJoolaOnly, q])
 
   const counts: Record<SignalSource, number> = {
     seo: selected.seo.size,
     top_posts: selected.top_posts.size,
     news: selected.news.size,
-    reddit: selected.reddit.size,
+    reddit: 0,
     free_prompt: freePrompt.trim().length > 0 ? 1 : 0,
   }
+
+  // Per-platform availability tally so the dropdown can show counts
+  const platformCounts = useMemo(() => {
+    const c: Record<TopPostPlatform, number> = { instagram: 0, tiktok: 0, twitter: 0, youtube: 0 }
+    for (const r of preview.top_posts) c[r.platform]++
+    return c
+  }, [preview.top_posts])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minHeight: 0 }}>
@@ -102,7 +158,60 @@ export function SignalPickerTabs({
         })}
       </div>
 
-      {/* Search (not used on free_prompt tab) */}
+      {/* Top Posts platform + sort row */}
+      {activeTab === 'top_posts' && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select
+            className="fld"
+            value={platform}
+            onChange={e => setPlatform(e.target.value as TopPostPlatform)}
+            style={{ fontSize: 11, padding: '3px 6px', minWidth: 120 }}
+            aria-label="Platform"
+          >
+            {PLATFORMS.map(p => (
+              <option key={p.value} value={p.value}>
+                {p.label} ({platformCounts[p.value]})
+              </option>
+            ))}
+          </select>
+          <select
+            className="fld"
+            value={sortKey}
+            onChange={e => setSortKey(e.target.value as TopPostSortKey)}
+            style={{ fontSize: 11, padding: '3px 6px' }}
+            aria-label="Sort by"
+          >
+            {SORT_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>Sort: {o.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* News filter row */}
+      {activeTab === 'news' && (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+          {SENT_FILTERS.map(s => (
+            <button
+              key={s.value}
+              className={'chip ' + (newsSent === s.value ? 'on' : '')}
+              onClick={() => setNewsSent(s.value)}
+              style={{ fontSize: 10, padding: '2px 6px' }}
+            >
+              {s.label}
+            </button>
+          ))}
+          <button
+            className={'chip ' + (newsJoolaOnly ? 'on' : '')}
+            onClick={() => setNewsJoolaOnly(v => !v)}
+            style={{ fontSize: 10, padding: '2px 6px', marginLeft: 4 }}
+          >
+            JOOLA only
+          </button>
+        </div>
+      )}
+
+      {/* Search (not on free_prompt) */}
       {activeTab !== 'free_prompt' && (
         <input
           className="fld"
@@ -130,7 +239,7 @@ export function SignalPickerTabs({
 
         {activeTab === 'top_posts' && (
           filteredTopPosts.length === 0
-            ? <div className="empty">No top posts match.</div>
+            ? <div className="empty">No {PLATFORMS.find(p => p.value === platform)?.label} posts found.</div>
             : filteredTopPosts.map(r => (
                 <SignalRow
                   key={r.post_id}
@@ -150,19 +259,6 @@ export function SignalPickerTabs({
                   variant={{ kind: 'news', row: r }}
                   selected={selected.news.has(r.id)}
                   onToggle={() => onToggle('news', r.id)}
-                />
-              ))
-        )}
-
-        {activeTab === 'reddit' && (
-          filteredReddit.length === 0
-            ? <div className="empty">No Reddit mentions match.</div>
-            : filteredReddit.map(r => (
-                <SignalRow
-                  key={r.id}
-                  variant={{ kind: 'reddit', row: r }}
-                  selected={selected.reddit.has(r.id)}
-                  onToggle={() => onToggle('reddit', r.id)}
                 />
               ))
         )}

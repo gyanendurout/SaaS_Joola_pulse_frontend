@@ -164,7 +164,7 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
                 tooltip="Negative comments that need a response — spikes signal a product issue, shipping problem, or PR event"
                 value={data.totalComplaints} trend={data.trends.complaints}
                 delta={'▲ ' + formatPct(4.2, true)} dir="down" />
-              <div className="kpi joola">
+              <div className={'kpi ' + (data.responseRate > 0 ? 'joola' : 'warn')}>
                 <div className="label">
                   <span>RESPONSE RATE</span>
                   <span className="src">complaints · 48h SLA</span>
@@ -178,7 +178,13 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
                       transform="rotate(-90 46 16)" />
                   </svg>
                 </div>
-                <div className="delta up">▲ +4.2pp <span className="vs">vs last wk · target 80%</span></div>
+                {data.responseRate > 0 ? (
+                  <div className="delta up">{Math.round(data.responseRate)}% replied <span className="vs">· target 80%</span></div>
+                ) : (
+                  <div className="delta" style={{ color: 'var(--fg-4)' }}>
+                    no JOOLA replies tracked yet <span className="vs">· target 80%</span>
+                  </div>
+                )}
               </div>
               <KpiCard
                 variant={data.avgResponseTimeMins == null ? 'warn' : data.avgResponseTimeMins <= 60 ? 'joola' : 'danger'}
