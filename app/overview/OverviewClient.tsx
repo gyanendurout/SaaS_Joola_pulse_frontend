@@ -229,8 +229,9 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
                 {data.responseRate > 0 ? (
                   <div className="delta up">{Math.round(data.responseRate)}% replied <span className="vs">· target 80%</span></div>
                 ) : (
-                  <div className="delta" style={{ color: 'var(--fg-4)' }}>
-                    no JOOLA replies tracked yet <span className="vs">· target 80%</span>
+                  <div className="delta" style={{ color: 'var(--fg-4)', fontSize: 10.5, lineHeight: 1.4 }}>
+                    JOOLA replies not yet tracked.<br />
+                    Scraper does not detect brand replies on Instagram comments.
                   </div>
                 )}
               </div>
@@ -241,9 +242,24 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
                 value={data.avgResponseTimeMins ?? '—'}
                 unit={data.avgResponseTimeMins != null ? ' min' : ''}
                 trend={data.trends.responseTime}
-                delta={data.avgResponseTimeMins == null ? 'no replies yet' : 'min · 13-wk avg'}
+                delta={data.avgResponseTimeMins == null ? 'awaiting reply-tracking pipeline' : 'min · 13-wk avg'}
                 dir={data.avgResponseTimeMins == null || data.avgResponseTimeMins > 60 ? 'down' : 'up'} />
             </div>
+            {(data.responseRate === 0 || data.avgResponseTimeMins == null) && (
+              <div style={{
+                marginTop: 8,
+                padding: '10px 14px',
+                background: 'var(--bg-3)',
+                border: '1px dashed var(--line)',
+                borderRadius: 6,
+                fontSize: 11,
+                color: 'var(--fg-4)',
+                lineHeight: 1.5,
+              }}>
+                <strong style={{ color: 'var(--fg-2)' }}>Response tracking pending.</strong>{' '}
+                Complaint replies from @joolapickleball are not yet detected by the scraper, so Response Rate stays at 0% and Average Response Time stays blank. Wire a per-comment "is_joola_reply" flag into the IG comment ingest pipeline to populate these.
+              </div>
+            )}
           </div>
         </>
       )}

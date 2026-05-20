@@ -231,8 +231,23 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
                     {stats.reach > 0 && <div>{fmt(stats.reach)} reach</div>}
                   </div>
                 ) : (
-                  <div style={{ marginTop: 12, fontSize: 11, color: 'var(--fg-4)', lineHeight: 1.5, fontStyle: 'italic' }}>
-                    Athletes have verified accounts on this platform, but data collection is not yet set up.
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '8px 10px',
+                      background: 'rgba(245,230,37,0.08)',
+                      border: '1px dashed var(--warn)',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <strong style={{ color: 'var(--warn)', fontSize: 10, letterSpacing: '0.04em' }}>
+                      ⚠ DATA COLLECTION NOT SET UP
+                    </strong>
+                    <div style={{ marginTop: 4, color: 'var(--fg-3)' }}>
+                      Athletes have verified accounts on this platform, but the scraper hasn't been configured yet.
+                    </div>
                   </div>
                 )}
               </div>
@@ -411,6 +426,9 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
               </span>
             )}
             <span style={{ marginLeft: 8, color: 'var(--fg-3)', fontWeight: 400 }}>({filteredPosts.length})</span>
+            <span style={{ fontSize: 11, color: 'var(--fg-4)', fontWeight: 400, marginLeft: 8 }}>
+              · one row per post · athlete names repeat when an athlete published multiple posts in the window
+            </span>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
             {selectedInf !== 'all' && (
@@ -438,18 +456,22 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
           <div
             style={{
               marginBottom: 14,
-              padding: '8px 12px',
-              background: 'var(--bg-3)',
-              border: '1px dashed var(--line)',
+              padding: '10px 12px',
+              background: 'rgba(245,230,37,0.08)',
+              border: '1px dashed var(--warn)',
               borderRadius: 6,
-              fontSize: 11,
-              color: 'var(--fg-4)',
+              fontSize: 12,
               lineHeight: 1.5,
             }}
           >
-            <strong style={{ color: 'var(--fg-2)' }}>AI enrichment pending</strong> — sentiment and sponsored flags
-            haven't run on influencer posts yet, so those columns are blank. They'll populate once the next
-            enrichment pass completes.
+            <div style={{ color: 'var(--warn)', fontWeight: 700, fontSize: 11, letterSpacing: '0.04em', marginBottom: 4 }}>
+              ⚠ AI ENRICHMENT PENDING
+            </div>
+            <div style={{ color: 'var(--fg-3)' }}>
+              Sentiment and sponsored flags haven't run on influencer posts yet, so the <strong>Sentiment</strong> and{' '}
+              <strong>Sponsored</strong> columns below show <code style={{ color: 'var(--fg-4)' }}>—</code>. They'll
+              populate once the next enrichment pass completes.
+            </div>
           </div>
         )}
         {filteredPosts.length === 0 ? (
@@ -471,16 +493,26 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
                 </tr>
               </thead>
               <tbody>
-                {filteredPosts.map(p => {
+                {filteredPosts.map((p, idx) => {
                   const inf = infMap[p.influencer_id]
+                  const prev = idx > 0 ? filteredPosts[idx - 1] : null
+                  const isRepeat = prev != null && prev.influencer_id === p.influencer_id
                   return (
                     <tr key={p.id}>
-                      <td style={{ fontWeight: 600, fontSize: 13 }}>
+                      <td style={{ fontWeight: isRepeat ? 400 : 600, fontSize: 13 }}>
                         <button
                           type="button"
                           className="tlink"
                           onClick={() => setSelectedInf(selectedInf === p.influencer_id ? 'all' : p.influencer_id)}
-                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit', textAlign: 'left' }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                            font: 'inherit',
+                            color: isRepeat ? 'var(--fg-3)' : 'inherit',
+                            textAlign: 'left',
+                          }}
                           title="Filter posts to this athlete only"
                         >
                           {inf?.name ?? '—'}
