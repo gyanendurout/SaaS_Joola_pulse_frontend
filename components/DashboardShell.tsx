@@ -127,7 +127,7 @@ export default function DashboardShell({
   useEffect(() => {
     if (draftCountProp !== undefined) return
     const ac = new AbortController()
-    fetch('/seo-api/content/drafts?limit=1', { signal: ac.signal })
+    fetch('/api/content/draft-count', { signal: ac.signal })
       .then(r => (r.ok ? r.json() : null))
       .then(j => {
         if (j && typeof j.total === 'number') setFetchedCount(j.total)

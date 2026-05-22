@@ -11,6 +11,7 @@ import { Tip } from '@/components/ui/Tip'
 
 export interface OverviewData {
   lastSync: string
+  signalDateRange: string
   totalPosts: number
   totalComments: number
   avgEngagement: number
@@ -202,7 +203,7 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
                 value={data.uniqueFans} trend={data.trends.fans}
                 delta={'▲ ' + formatPct(11.3, true)} dir="up" />
             </div>
-            <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            <div className="kpi-grid">
               <KpiCard variant="joola" label="POTENTIAL AMBASSADORS" src="Instagram · score ≥ 7.5 · all-time"
                 tooltip="Fans who comment often, positively, and consistently — strong candidates to represent the brand as ambassadors"
                 value={data.ambassadors} trend={data.trends.ambassadors}
@@ -214,7 +215,10 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
                 delta={'▲ ' + formatPct(4.2, true)} dir="down" />
               <div className={'kpi ' + (data.responseRate > 0 ? 'joola' : 'warn')}>
                 <div className="label">
-                  <span>RESPONSE RATE</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                    RESPONSE RATE
+                    <Tip text="Percentage of AI-detected Instagram complaints that received a JOOLA reply within the 48-hour SLA. This remains 0% until the Instagram scraper can identify brand replies on complaint threads." />
+                  </span>
                   <span className="src">Instagram complaints · 48h SLA</span>
                 </div>
                 <div className="row">
@@ -243,7 +247,8 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
                 unit={data.avgResponseTimeMins != null ? ' min' : ''}
                 trend={data.trends.responseTime}
                 delta={data.avgResponseTimeMins == null ? 'awaiting reply-tracking pipeline' : 'min · 13-wk avg'}
-                dir={data.avgResponseTimeMins == null || data.avgResponseTimeMins > 60 ? 'down' : 'up'} />
+                dir={data.avgResponseTimeMins == null || data.avgResponseTimeMins > 60 ? 'down' : 'up'}
+                hideVs={data.avgResponseTimeMins == null} />
             </div>
             {(data.responseRate === 0 || data.avgResponseTimeMins == null) && (
               <div style={{
@@ -484,10 +489,10 @@ export default function OverviewClient({ data }: { data: OverviewData }) {
                 // - Comments/ER are 13-wk snapshot rollups.
                 // - Ambassadors is an all-time score-based flag (not "this week").
                 // - Unique fans is a distinct-commenter count across the tracked period.
-                { type: 'complaint', desc: `${data.totalComplaints} complaints detected across Instagram — ${Math.round(data.responseRate)}% responded`, when: 'last 13 wk' },
-                { type: 'praise',    desc: `${formatShort(data.totalComments)} total comments — ${(data.avgEngagement * 100).toFixed(2)}% avg engagement rate`, when: 'last 13 wk' },
-                { type: 'fan',       desc: `${data.ambassadors} potential ambassadors identified (score ≥ 7.5)`, when: 'all-time' },
-                { type: 'intent',    desc: `${formatShort(data.uniqueFans)} unique fans active in tracked period`, when: 'last 13 wk' },
+                { type: 'complaint', desc: `${data.totalComplaints} complaints detected across Instagram — ${Math.round(data.responseRate)}% responded`, when: data.signalDateRange },
+                { type: 'praise',    desc: `${formatShort(data.totalComments)} total comments — ${(data.avgEngagement * 100).toFixed(2)}% avg engagement rate`, when: data.signalDateRange },
+                { type: 'fan',       desc: `${data.ambassadors} potential ambassadors identified (score ≥ 7.5)`, when: 'All-time' },
+                { type: 'intent',    desc: `${formatShort(data.uniqueFans)} unique fans active in tracked period`, when: data.signalDateRange },
               ].map((s, i) => (
                 <div className="signal" key={i}>
                   <span className={'sig-tag ' + s.type}>{s.type.toUpperCase()}</span>

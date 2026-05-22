@@ -92,6 +92,7 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
       if (inf.instagram_handle) { m.instagram.athletes++; m.instagram.reach += inf.follower_count_ig ?? 0 }
       if (inf.tiktok_handle) m.tiktok.athletes++
       if (inf.youtube_channel_url) { m.youtube.athletes++; m.youtube.reach += inf.follower_count_yt ?? 0 }
+      if (inf.x_handle) m.x.athletes++
     }
     for (const p of posts) {
       const plat = (p.platform || '').toLowerCase()
@@ -301,8 +302,8 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
             {
               key: 'x',
               label: 'X',
-              handle: null,
-              url: null,
+              handle: inf.x_handle,
+              url: inf.x_handle ? `https://x.com/${inf.x_handle}` : null,
               followers: null as number | null,
               posts: ps.x?.count ?? 0,
               color: '#FFFFFF',
@@ -519,7 +520,19 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
                         </button>
                       </td>
                       <td>
-                        <span className="chip" style={{ fontSize: 10, textTransform: 'capitalize' }}>{p.platform}</span>
+                        {p.post_url ? (
+                          <a
+                            href={p.post_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={`Open ${p.platform} post`}
+                            style={{ textDecoration: 'none' }}
+                          >
+                            <span className="chip" style={{ fontSize: 10, textTransform: 'capitalize', cursor: 'pointer' }}>{p.platform}</span>
+                          </a>
+                        ) : (
+                          <span className="chip" style={{ fontSize: 10, textTransform: 'capitalize' }}>{p.platform}</span>
+                        )}
                       </td>
                       <td className="cell-num" style={{ fontWeight: 600 }}>{fmt(p.like_count)}</td>
                       <td className="cell-num">{fmt(p.view_count)}</td>

@@ -18,6 +18,7 @@ export interface Influencer {
   follower_count_yt: number | null
   country_code: string | null
   contract_type: string | null
+  x_handle: string | null
   is_active: boolean
 }
 

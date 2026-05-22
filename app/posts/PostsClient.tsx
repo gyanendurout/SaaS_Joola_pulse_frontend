@@ -144,6 +144,77 @@ export default function PostsClient({
     return [...athleteRows].map((a) => a.name).sort((a, b) => a.localeCompare(b))
   }, [athleteRows])
 
+  // All-time posts for the selected athlete — basis for per-athlete analytics
+  const athleteAllPosts = useMemo((): EnrichedPost[] => {
+    if (athleteFilter === 'all') return []
+    return posts.filter((p) => {
+      const athletes = Array.isArray(p.athletes_shown)
+        ? p.athletes_shown.map((a) => normalizeAthleteName(a))
+        : []
+      return athletes.includes(athleteFilter)
+    })
+  }, [posts, athleteFilter])
+
+  // KPIs: athlete-scoped (all-time) when filtered, otherwise period-scoped
+  const displayKpis = useMemo(() => {
+    if (athleteFilter === 'all') return periodKpis
+    const n = athleteAllPosts.length
+    const totalViews = athleteAllPosts.reduce((a, p) => a + (p.view_count || 0), 0)
+    const avgER = n > 0 ? athleteAllPosts.reduce((a, p) => a + (p.engagement_rate || 0), 0) / n : 0
+    return { totalPosts: n, totalViews, avgER, avgCadence: periodKpis.avgCadence }
+  }, [athleteFilter, athleteAllPosts, periodKpis])
+
+  // Content Theme × Format matrix re-derived from athlete posts when filtered
+  const displayThemeRows = useMemo((): ThemeRow[] => {
+    if (athleteFilter === 'all') return themeRows
+    const matrix: Record<string, Record<string, { count: number; er: number; views: number; likes: number }>> = {}
+    for (const p of athleteAllPosts) {
+      const theme = (p.content_theme || 'unknown').toLowerCase()
+      const type = (p.post_type || 'unknown').toLowerCase()
+      if (!matrix[theme]) matrix[theme] = {}
+      if (!matrix[theme][type]) matrix[theme][type] = { count: 0, er: 0, views: 0, likes: 0 }
+      const cell = matrix[theme][type]
+      cell.count++; cell.er += p.engagement_rate || 0; cell.views += p.view_count || 0; cell.likes += p.like_count || 0
+    }
+    return Object.entries(matrix).map(([theme, types]) => {
+      let totalCount = 0, totalEr = 0, totalViews = 0, totalLikes = 0
+      const cells: Record<string, { count: number; avgEr: number; avgViews: number }> = {}
+      for (const [type, c] of Object.entries(types)) {
+        cells[type] = { count: c.count, avgEr: c.count > 0 ? c.er / c.count : 0, avgViews: c.count > 0 ? c.views / c.count : 0 }
+        totalCount += c.count; totalEr += c.er; totalViews += c.views; totalLikes += c.likes
+      }
+      return { theme, count: totalCount, avgEr: totalCount > 0 ? totalEr / totalCount : 0, avgViews: totalCount > 0 ? totalViews / totalCount : 0, avgLikes: totalCount > 0 ? totalLikes / totalCount : 0, cells }
+    }).sort((a, b) => b.count - a.count)
+  }, [athleteFilter, athleteAllPosts, themeRows])
+
+  // Posting Cadence by Theme re-derived from athlete posts when filtered
+  const displayCadenceRows = useMemo((): CadenceRow[] => {
+    if (athleteFilter === 'all') return cadenceRows
+    const themeDayAgg: Record<string, Record<string, { sum: number; count: number }>> = {}
+    for (const p of athleteAllPosts) {
+      const theme = (p.content_theme || 'unknown').toLowerCase()
+      const day = (p.day_of_week || 'unknown').toLowerCase()
+      if (!themeDayAgg[theme]) themeDayAgg[theme] = {}
+      if (!themeDayAgg[theme][day]) themeDayAgg[theme][day] = { sum: 0, count: 0 }
+      themeDayAgg[theme][day].sum += p.engagement_rate || 0
+      themeDayAgg[theme][day].count++
+    }
+    return Object.entries(themeDayAgg)
+      .filter(([theme]) => theme !== 'unknown')
+      .map(([theme, days]) => {
+        let best = { day: '', avgEr: 0, count: 0 }
+        const all: Array<{ day: string; avgEr: number; count: number }> = []
+        for (const [day, v] of Object.entries(days)) {
+          const avgEr = v.count > 0 ? v.sum / v.count : 0
+          all.push({ day, avgEr, count: v.count })
+          if (avgEr > best.avgEr) best = { day, avgEr, count: v.count }
+        }
+        return { theme, best, days: all.sort((a, b) => b.avgEr - a.avgEr) }
+      })
+      .sort((a, b) => b.best.avgEr - a.best.avgEr)
+      .slice(0, 8)
+  }, [athleteFilter, athleteAllPosts, cadenceRows])
+
   // Theme matrix sort
   type ThemeSortKey = 'count' | 'er' | 'views' | 'likes'
   const [themeSk, setThemeSk] = useState<ThemeSortKey>('count')
@@ -158,14 +229,14 @@ export default function PostsClient({
   }
   const sortedThemeRows = useMemo(() => {
     const d = themeSd === 'desc' ? -1 : 1
-    return [...themeRows].sort((a, b) => {
+    return [...displayThemeRows].sort((a, b) => {
       if (themeSk === 'count') return d * (a.count - b.count)
       if (themeSk === 'er')    return d * (a.avgEr - b.avgEr)
       if (themeSk === 'views') return d * (a.avgViews - b.avgViews)
       if (themeSk === 'likes') return d * (a.avgLikes - b.avgLikes)
       return 0
     })
-  }, [themeRows, themeSk, themeSd])
+  }, [displayThemeRows, themeSk, themeSd])
 
   // Athlete table sort
   type AthleteSortKey = 'count' | 'er' | 'views' | 'likes'
@@ -204,21 +275,23 @@ export default function PostsClient({
   }
   const sortedCadenceRows = useMemo(() => {
     const d = cadenceSd === 'desc' ? -1 : 1
-    return [...cadenceRows].sort((a, b) => {
+    return [...displayCadenceRows].sort((a, b) => {
       if (cadenceSk === 'theme') return d * a.theme.localeCompare(b.theme)
       if (cadenceSk === 'er')    return d * (a.best.avgEr - b.best.avgEr)
       return 0
     })
-  }, [cadenceRows, cadenceSk, cadenceSd])
+  }, [displayCadenceRows, cadenceSk, cadenceSd])
 
   const types = ['All', ...postTypes.map((t) => t.charAt(0).toUpperCase() + t.slice(1))]
 
   const filtered = useMemo(() => {
-    const base = periodPosts.filter((p) => {
+    // When an athlete is selected, search across ALL posts regardless of period
+    // so the user always sees results. The period selector only affects KPIs.
+    // When "all athletes" is selected, respect the period filter as usual.
+    const source = athleteFilter !== 'all' ? posts : periodPosts
+    const base = source.filter((p) => {
       if (typeFilter !== 'All' && (p.post_type ?? '').toLowerCase() !== typeFilter.toLowerCase()) return false
       if (athleteFilter !== 'all') {
-        // Normalize both sides of the comparison so "benjohns" in the post row
-        // matches the canonical "Ben Johns" stored in athleteFilter.
         const athletes = Array.isArray(p.athletes_shown)
           ? p.athletes_shown.map((a) => normalizeAthleteName(a))
           : []
@@ -274,21 +347,21 @@ export default function PostsClient({
       {/* KPIs */}
       <div className="section">
         <div className="kpi-grid">
-          <KpiCard variant="joola" label="POSTS PUBLISHED" src={periodRange(period)}
+          <KpiCard variant="joola" label="POSTS PUBLISHED" src={athleteFilter !== 'all' ? `${athleteFilter} · all time` : periodRange(period)}
             tooltip="How many posts JOOLA published in the selected period"
-            value={periodKpis.totalPosts} trend={trends.posts}
-            delta={'▲ +' + Math.max(1, Math.round(periodKpis.totalPosts * 0.07)) + ' (7.0%)'} dir="up" />
+            value={displayKpis.totalPosts} trend={trends.posts}
+            delta={'▲ +' + Math.max(1, Math.round(displayKpis.totalPosts * 0.07)) + ' (7.0%)'} dir="up" />
           <KpiCard label="AVG ENGAGEMENT RATE" src="(likes + comments) ÷ reach"
             tooltip="Engagement Rate = (likes + comments) ÷ people who saw the post. Example: a post seen by 10,000 people that got 600 likes + 50 comments = 650 ÷ 10,000 = 6.5%. Benchmarks: above 6% is excellent, 3–6% is healthy, below 3% needs attention."
-            value={+(periodKpis.avgER * 100).toFixed(2)} unit="%"
+            value={+(displayKpis.avgER * 100).toFixed(2)} unit="%"
             trend={trends.er} delta="▼ -2.4%" dir="down" />
-          <KpiCard label="TOTAL VIEWS" src={`reels + video · ${periodRange(period)}`}
+          <KpiCard label="TOTAL VIEWS" src={athleteFilter !== 'all' ? `${athleteFilter} · all time` : `reels + video · ${periodRange(period)}`}
             tooltip="Combined view count across all Reels and video posts in the selected period"
-            value={periodKpis.totalViews} trend={trends.views}
+            value={displayKpis.totalViews} trend={trends.views}
             delta="▲ +18.4%" dir="up" />
           <KpiCard label="AVG POST CADENCE" src="posts / week"
             tooltip="Average number of posts per week — consistency drives algorithm reach"
-            value={periodKpis.avgCadence} trend={trends.posts}
+            value={displayKpis.avgCadence} trend={trends.posts}
             delta="▲ +0.8" dir="up" />
         </div>
       </div>
@@ -358,7 +431,7 @@ export default function PostsClient({
                 ))}
               </tbody>
             </table>
-            {themeRows.length === 0 && <div className="empty">No themed posts yet. Run AI post analysis to populate.</div>}
+            {displayThemeRows.length === 0 && <div className="empty">No themed posts yet. Run AI post analysis to populate.</div>}
           </div>
         </div>
       </div>
@@ -454,7 +527,7 @@ export default function PostsClient({
                     })}
                   </tbody>
                 </table>
-                {cadenceRows.length === 0 && <div className="empty">Not enough themed posts yet.</div>}
+                {displayCadenceRows.length === 0 && <div className="empty">Not enough themed posts yet.</div>}
               </div>
             </div>
           </div>

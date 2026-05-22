@@ -412,31 +412,38 @@ export default function SeoDashboardClient({
       <div className="section">
         <div className="kpi-grid">
           <KpiCard variant="danger" label="ISSUES DETECTED" src={`${criticalCount} critical · ${highCount} high`}
+            tooltip="Total SEO issues found by the last crawl. Critical = blocks indexing or causes ranking loss immediately. High = significant impact if left unfixed. Fix critical issues first."
             value={issues.length}
             trend={[58,56,54,54,52,52,50,50,52,51,50,50,issues.length]}
             delta="▼ -8 this wk" dir="up" />
           <KpiCard label="GSC CLICKS" src={_daysAgoLabel(28)}
+            tooltip="Total clicks from Google Search in the last 28 days — the number of times someone clicked a JOOLA result in Google. More clicks = more organic traffic. Source: Google Search Console."
             value={184000}
             trend={[200,210,215,212,208,205,200,196,194,190,188,186,184].map(v => v*1000)}
             delta="▼ -1.1%" dir="down" />
           <KpiCard variant="joola" label="IMPRESSIONS" src={_daysAgoLabel(28)}
+            tooltip="How many times JOOLA pages appeared in Google search results in the last 28 days, whether or not someone clicked. High impressions with low CTR means your titles and descriptions need improvement. Source: Google Search Console."
             value={4824000}
             trend={[4400,4520,4600,4640,4680,4720,4760,4780,4790,4800,4810,4820,4824].map(v => v*1000)}
             delta="▲ +9.2%" dir="up" />
           <KpiCard variant="warn" label="AVG POSITION" src="all tracked queries"
+            tooltip="Average ranking position across all tracked keywords. Position 1 = top Google result, 10 = bottom of page 1. Lower is better — aim for under 10 to stay on page 1. A drop (higher number) means competitors are outranking JOOLA."
             value={rankHistory[rankHistory.length - 1]}
             trend={rankHistory}
             delta="▼ -0.8" dir="down" />
         </div>
         <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
           <KpiCard label="CTR" src="clicks ÷ impressions" value={3.82} unit="%"
+            tooltip="Click-Through Rate = clicks ÷ impressions. Shows what percentage of people who see JOOLA in Google actually click through. Industry benchmark for branded queries is 5–10%. A low CTR means your title tags and meta descriptions aren't compelling enough."
             trend={[4.2,4.1,4.05,4.0,3.95,3.95,3.92,3.9,3.88,3.86,3.84,3.83,3.82]}
             delta="▼ -0.38pp" dir="down" />
           <KpiCard label="BACKLINKS" src={`${fmtNum(backlinkSummary.referring_domains)} ref domains`}
+            tooltip="Total backlinks pointing to JOOLA's website from external sites. More high-quality backlinks = higher domain authority = better rankings. The ref domains count shows how many unique websites link to JOOLA — diversity matters more than raw count."
             value={backlinkSummary.total_backlinks}
             trend={[22000,22400,22800,23100,23400,23700,24000,24200,24400,24600,24700,24780,24820]}
             delta="▲ +1.2%" dir="up" />
           <KpiCard variant="joola" label="KEYWORD COVERAGE" src="ranked / target"
+            tooltip="How many of JOOLA's target keywords are currently ranking on Google (312) out of the total tracked (421). Closing this gap means more organic visibility. Keywords not yet ranking are opportunities for new content or optimization."
             value="312 / 421"
             trend={[280,285,290,295,298,300,302,305,308,310,311,312,312]}
             delta="▲ +18" dir="up" />

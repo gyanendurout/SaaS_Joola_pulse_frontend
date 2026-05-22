@@ -72,7 +72,11 @@ export default async function ComplaintsPage() {
     { name: 'low', count: sevCounts.low ?? 0 },
   ]
 
-  // Category × week trend (last 8 weeks, stacked by top categories)
+  // Category × week trend (last 8 consecutive weeks, stacked by top categories)
+  // We generate all 8 week-starts from today so weeks with 0 complaints still
+  // appear as zero-height bars — without this, sparse weeks get skipped and the
+  // chart timeline becomes discontinuous (e.g. Feb 9 → May 11 looks like 8 bars
+  // but actually spans 13 weeks).
   const topCats = categoryData.slice(0, 4).map((c) => c.name)
   const weekAgg: Record<string, Record<string, number>> = {}
   for (const c of allComplaints) {
@@ -82,18 +86,25 @@ export default async function ComplaintsPage() {
     const cat = c.complaint_category || 'other'
     weekAgg[ws][cat] = (weekAgg[ws][cat] || 0) + 1
   }
-  const weekKeys = Object.keys(weekAgg).sort().slice(-8)
-  const categoryTrend = weekKeys.map((ws) => {
+  const MS_PER_WEEK = 7 * 24 * 3600 * 1000
+  const todayWeekStart = isoWeekStart(new Date())
+  const last8Weeks: string[] = []
+  for (let i = 7; i >= 0; i--) {
+    last8Weeks.push(isoWeekStart(new Date(new Date(todayWeekStart).getTime() - i * MS_PER_WEEK)))
+  }
+  const categoryTrend = last8Weeks.map((ws) => {
     const row: { week: string; total: number; cats: Record<string, number> } = {
       week: ws,
       total: 0,
       cats: {},
     }
     for (const cat of [...topCats, 'other']) row.cats[cat] = 0
-    for (const [cat, n] of Object.entries(weekAgg[ws])) {
-      const bucket = topCats.includes(cat) ? cat : 'other'
-      row.cats[bucket] = (row.cats[bucket] || 0) + n
-      row.total += n
+    if (weekAgg[ws]) {
+      for (const [cat, n] of Object.entries(weekAgg[ws])) {
+        const bucket = topCats.includes(cat) ? cat : 'other'
+        row.cats[bucket] = (row.cats[bucket] || 0) + n
+        row.total += n
+      }
     }
     return row
   })

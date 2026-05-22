@@ -19,6 +19,7 @@ interface KpiCardProps {
   delta?: string
   dir?: 'up' | 'down'
   variant?: '' | 'joola' | 'warn' | 'danger'
+  hideVs?: boolean
   children?: React.ReactNode
 }
 
@@ -32,6 +33,7 @@ export default function KpiCard({
   delta,
   dir = 'up',
   variant = '',
+  hideVs = false,
   children,
 }: KpiCardProps) {
   const formatted =
@@ -62,7 +64,12 @@ export default function KpiCard({
         {trend && <Sparkline data={trend} color={color} />}
         {children}
       </div>
-      {delta && <div className={'delta ' + dir}>{delta} <span className="vs">vs prev period</span></div>}
+      {delta && (
+        <div className={'delta ' + dir} style={hideVs ? { whiteSpace: 'normal', overflow: 'visible' } : undefined}>
+          {delta}
+          {!hideVs && <span className="vs">vs prev period</span>}
+        </div>
+      )}
     </div>
   )
 }

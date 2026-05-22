@@ -94,14 +94,14 @@ export default function WeeklyDigestClient({
   const sortedHistory = useMemo(() => {
     const dir = histSd === 'desc' ? -1 : 1
     return [...history].sort((a, b) => {
-      if (histSk === 'week')       return dir * (new Date(a.week_start).getTime() - new Date(b.week_start).getTime())
-      if (histSk === 'posts')      return dir * ((a.posts_published ?? 0) - (b.posts_published ?? 0))
-      if (histSk === 'comments')   return dir * ((a.total_comments ?? 0) - (b.total_comments ?? 0))
-      if (histSk === 'views')      return dir * ((a.total_views ?? 0) - (b.total_views ?? 0))
-      if (histSk === 'er')         return dir * ((a.avg_engagement_rate ?? 0) - (b.avg_engagement_rate ?? 0))
-      if (histSk === 'sent')       return dir * ((a.avg_sentiment_score ?? 0) - (b.avg_sentiment_score ?? 0))
+      if (histSk === 'week') return dir * (new Date(a.week_start).getTime() - new Date(b.week_start).getTime())
+      if (histSk === 'posts') return dir * ((a.posts_published ?? 0) - (b.posts_published ?? 0))
+      if (histSk === 'comments') return dir * ((a.total_comments ?? 0) - (b.total_comments ?? 0))
+      if (histSk === 'views') return dir * ((a.total_views ?? 0) - (b.total_views ?? 0))
+      if (histSk === 'er') return dir * ((a.avg_engagement_rate ?? 0) - (b.avg_engagement_rate ?? 0))
+      if (histSk === 'sent') return dir * ((a.avg_sentiment_score ?? 0) - (b.avg_sentiment_score ?? 0))
       if (histSk === 'complaints') return dir * ((a.complaint_count ?? 0) - (b.complaint_count ?? 0))
-      if (histSk === 'intent')     return dir * ((a.purchase_intent_count ?? 0) - (b.purchase_intent_count ?? 0))
+      if (histSk === 'intent') return dir * ((a.purchase_intent_count ?? 0) - (b.purchase_intent_count ?? 0))
       return 0
     })
   }, [history, histSk, histSd])
