@@ -170,33 +170,37 @@ export default function PostsClient({
   // kpiPosts so the table reflects the same data slice as the KPI cards.
   const filteredThemeRows = useMemo((): ThemeRow[] => {
     if (athleteFilter === 'all') return themeRows
-    const byTheme = new Map<string, { posts: EnrichedPost[]; byType: Map<string, EnrichedPost[]> }>()
+    type TSum = { count: number; er: number; views: number; likes: number }
+    type CSum = { count: number; er: number; views: number }
+    const tMap = new Map<string, TSum>()
+    const cMap = new Map<string, Map<string, CSum>>()
     for (const p of kpiPosts) {
       const theme = p.content_theme
       if (!theme) continue
-      if (!byTheme.has(theme)) byTheme.set(theme, { posts: [], byType: new Map<string, EnrichedPost[]>() })
-      const entry = byTheme.get(theme)!
-      entry.posts.push(p)
-      const type = (p.post_type ?? '').toLowerCase()
-      if (!entry.byType.has(type)) entry.byType.set(type, [])
-      entry.byType.get(type)!.push(p)
+      const type  = (p.post_type ?? '').toLowerCase()
+      const er    = p.engagement_rate ?? 0
+      const views = p.view_count ?? 0
+      const likes = p.like_count ?? 0
+      const t = tMap.get(theme) ?? { count: 0, er: 0, views: 0, likes: 0 }
+      tMap.set(theme, { count: t.count + 1, er: t.er + er, views: t.views + views, likes: t.likes + likes })
+      if (!cMap.has(theme)) cMap.set(theme, new Map<string, CSum>())
+      const cm = cMap.get(theme)!
+      const c = cm.get(type) ?? { count: 0, er: 0, views: 0 }
+      cm.set(type, { count: c.count + 1, er: c.er + er, views: c.views + views })
     }
     const rows: ThemeRow[] = []
-    for (const [theme, { posts: tp, byType }] of byTheme.entries()) {
-      const n = tp.length
-      const avgEr    = n > 0 ? tp.reduce<number>((a, p) => a + (p.engagement_rate ?? 0), 0) / n : 0
-      const avgViews = n > 0 ? tp.reduce<number>((a, p) => a + (p.view_count ?? 0), 0) / n : 0
-      const avgLikes = n > 0 ? tp.reduce<number>((a, p) => a + (p.like_count ?? 0), 0) / n : 0
+    for (const [theme, ts] of tMap.entries()) {
+      const n = ts.count
       const cells: Record<string, { count: number; avgEr: number; avgViews: number }> = {}
-      for (const [type, typePosts] of byType.entries()) {
-        const tn = typePosts.length
+      const cm = cMap.get(theme) ?? new Map<string, CSum>()
+      for (const [type, cs] of cm.entries()) {
         cells[type] = {
-          count:    tn,
-          avgEr:    tn > 0 ? typePosts.reduce<number>((a, p) => a + (p.engagement_rate ?? 0), 0) / tn : 0,
-          avgViews: tn > 0 ? typePosts.reduce<number>((a, p) => a + (p.view_count ?? 0), 0) / tn : 0,
+          count:    cs.count,
+          avgEr:    cs.count > 0 ? cs.er / cs.count : 0,
+          avgViews: cs.count > 0 ? cs.views / cs.count : 0,
         }
       }
-      rows.push({ theme, count: n, avgEr, avgViews, avgLikes, cells })
+      rows.push({ theme, count: n, avgEr: n > 0 ? ts.er / n : 0, avgViews: n > 0 ? ts.views / n : 0, avgLikes: n > 0 ? ts.likes / n : 0, cells })
     }
     return rows
   }, [athleteFilter, kpiPosts, themeRows])
