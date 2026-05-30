@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { SortableTh, ExtLink } from '@/components/ui/SortableTh'
 import { Tip } from '@/components/ui/Tip'
 import { formatEnum } from '@/lib/format'
+import { usePagedRows } from '@/lib/usePagedRows'
 import type { TikTokAccount, TikTokVideo, TikTokComment, PaddleBuzz } from './page'
 
 interface Props {
@@ -154,6 +155,9 @@ export default function TikTokClient({ account, videos, comments, totalViews, to
       }
     })
   }, [videos, sortKey, sortDir, search, filterFlag])
+
+  const { visibleRows: visibleVideos, containerRef: videoContainerRef, sentinelRef: videoSentinelRef, hasMore: videosHasMore, total: videoTotal, shown: videoShown } = usePagedRows(filtered)
+  const { visibleRows: visibleComments, containerRef: commentContainerRef, sentinelRef: commentSentinelRef, hasMore: commentsHasMore, total: commentTotal, shown: commentShown } = usePagedRows(filteredComments)
 
   return (
     <div>
@@ -344,7 +348,7 @@ export default function TikTokClient({ account, videos, comments, totalViews, to
               {filteredComments.length === 0 ? (
                 <div className="empty">No comments match your filters.</div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
+                <div ref={commentContainerRef} className="table-wrap scroll">
                   <table className="data" style={{ width: '100%' }}>
                     <thead>
                       <tr>
@@ -357,7 +361,7 @@ export default function TikTokClient({ account, videos, comments, totalViews, to
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredComments.map(c => {
+                      {visibleComments.map(c => {
                         const vid = videoById[c.video_id]
                         return (
                           <tr key={c.id} style={c.is_brand_reply ? { background: 'color-mix(in srgb, var(--joola) 6%, transparent)' } : undefined}>
@@ -405,6 +409,13 @@ export default function TikTokClient({ account, videos, comments, totalViews, to
                           </tr>
                         )
                       })}
+                      {commentsHasMore && (
+                        <tr ref={commentSentinelRef}>
+                          <td colSpan={6} style={{ textAlign: 'center', padding: '10px 0', color: 'var(--fg-4)', fontSize: 11 }}>
+                            {commentTotal - commentShown} more — scroll to load
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -449,7 +460,7 @@ export default function TikTokClient({ account, videos, comments, totalViews, to
         {filtered.length === 0 ? (
           <div className="empty">No videos match your filters.</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div ref={videoContainerRef} className="table-wrap scroll">
             <table className="data" style={{ width: '100%' }}>
               <thead>
                 <tr>
@@ -468,7 +479,7 @@ export default function TikTokClient({ account, videos, comments, totalViews, to
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(v => {
+                {visibleVideos.map(v => {
                   const views = num(v.view_count)
                   const likes = num(v.like_count)
                   const eng = views ? ((likes + num(v.share_count) + num(v.comment_count)) / views) * 100 : 0
@@ -516,6 +527,13 @@ export default function TikTokClient({ account, videos, comments, totalViews, to
                     </tr>
                   )
                 })}
+                {videosHasMore && (
+                  <tr ref={videoSentinelRef}>
+                    <td colSpan={12} style={{ textAlign: 'center', padding: '10px 0', color: 'var(--fg-4)', fontSize: 11 }}>
+                      {videoTotal - videoShown} more — scroll to load
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

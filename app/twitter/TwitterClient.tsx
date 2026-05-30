@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { SortableTh, ExtLink } from '@/components/ui/SortableTh'
 import { Tip } from '@/components/ui/Tip'
 import { formatEnum } from '@/lib/format'
+import { usePagedRows } from '@/lib/usePagedRows'
 import type { XAccount, XPost, XReply } from './page'
 
 interface Props {
@@ -144,6 +145,9 @@ export default function TwitterClient({ account, posts, replies, totalLikes, tot
       }
     })
   }, [posts, sortKey, sortDir, search, filterType])
+
+  const { visibleRows: visiblePosts, containerRef: postsContainerRef, sentinelRef: postsSentinelRef, hasMore: postsHasMore, total: postsTotal, shown: postsShown } = usePagedRows(filtered)
+  const { visibleRows: visibleReplies, containerRef: repliesContainerRef, sentinelRef: repliesSentinelRef, hasMore: repliesHasMore, total: repliesTotal, shown: repliesShown } = usePagedRows(filteredReplies)
 
   return (
     <div>
@@ -350,7 +354,7 @@ export default function TwitterClient({ account, posts, replies, totalLikes, tot
               {filteredReplies.length === 0 ? (
                 <div className="empty">No replies match your filters.</div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
+                <div ref={repliesContainerRef} className="table-wrap scroll">
                   <table className="data" style={{ width: '100%' }}>
                     <thead>
                       <tr>
@@ -363,7 +367,7 @@ export default function TwitterClient({ account, posts, replies, totalLikes, tot
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredReplies.map(r => {
+                      {visibleReplies.map(r => {
                         const post = postById[r.post_id]
                         return (
                           <tr key={r.id} style={r.is_brand_reply ? { background: 'color-mix(in srgb, var(--joola) 6%, transparent)' } : undefined}>
@@ -411,6 +415,13 @@ export default function TwitterClient({ account, posts, replies, totalLikes, tot
                           </tr>
                         )
                       })}
+                      {repliesHasMore && (
+                        <tr ref={repliesSentinelRef}>
+                          <td colSpan={6} style={{ textAlign: 'center', padding: '10px 0', color: 'var(--fg-4)', fontSize: 11 }}>
+                            {repliesTotal - repliesShown} more — scroll to load
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -451,7 +462,7 @@ export default function TwitterClient({ account, posts, replies, totalLikes, tot
         {filtered.length === 0 ? (
           <div className="empty">No posts match your filters.</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div ref={postsContainerRef} className="table-wrap scroll">
             <table className="data" style={{ width: '100%' }}>
               <thead>
                 <tr>
@@ -468,7 +479,7 @@ export default function TwitterClient({ account, posts, replies, totalLikes, tot
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(p => {
+                {visiblePosts.map(p => {
                   const isRT = p.text?.startsWith('RT @')
                   return (
                     <tr key={p.id}>
@@ -508,6 +519,13 @@ export default function TwitterClient({ account, posts, replies, totalLikes, tot
                     </tr>
                   )
                 })}
+                {postsHasMore && (
+                  <tr ref={postsSentinelRef}>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: '10px 0', color: 'var(--fg-4)', fontSize: 11 }}>
+                      {postsTotal - postsShown} more — scroll to load
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

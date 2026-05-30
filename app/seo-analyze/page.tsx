@@ -499,7 +499,7 @@ export default function SeoAnalyzePage() {
             <h3>HISTORICAL RUNS</h3>
             <span className="meta">{PAST_RUNS.length} runs · last 90 days</span>
           </div>
-          <div className="table-wrap">
+          <div className="table-wrap scroll">
             <table className="data">
               <thead>
                 <tr>

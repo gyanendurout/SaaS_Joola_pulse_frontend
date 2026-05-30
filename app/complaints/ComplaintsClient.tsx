@@ -2,14 +2,16 @@
 
 import { Fragment, useState, useMemo } from 'react'
 import { format } from 'date-fns'
+import { usePagedRows } from '@/lib/usePagedRows'
 import KpiCard from '@/components/ui/KpiCard'
 import { Tip } from '@/components/ui/Tip'
+import { SortableTh } from '@/components/ui/SortableTh'
 import type { IgComplaintLog, IgWishlistItem, IgLoyalUser } from '@/lib/types'
 
 type ComplaintWithUrl = IgComplaintLog & { post_url?: string }
 type WishlistWithUrl = IgWishlistItem & { post_url?: string }
 type RepeatUser = Pick<IgLoyalUser, 'username' | 'complaint_count' | 'dominant_topic' | 'ambassador_score' | 'loyalty_tier' | 'last_seen_at' | 'avg_sentiment_score'>
-type RepeatSortKey = 'complaints' | 'score' | 'sentiment' | 'last_seen'
+type RepeatSortKey = 'complaints' | 'score' | 'sentiment' | 'last_seen' | 'username' | 'topic'
 
 interface TrendRow { week: string; total: number; cats: Record<string, number> }
 
@@ -38,7 +40,10 @@ export default function ComplaintsClient({
 }: ComplaintsClientProps) {
   const [catFilter, setCatFilter] = useState('All')
   const [responded, setResponded] = useState<'all' | 'open' | 'closed'>('all')
+  const [compSearch, setCompSearch] = useState('')
   const [view, setView] = useState<'queue' | 'repeat'>('queue')
+  // Optimistic local-only resolved toggle (resets on page refresh — wire to API to persist)
+  const [localResolved, setLocalResolved] = useState<Set<string>>(new Set())
   const [repeatSk, setRepeatSk] = useState<RepeatSortKey>('complaints')
   const [repeatSd, setRepeatSd] = useState<'asc' | 'desc'>('desc')
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
@@ -65,10 +70,6 @@ export default function ComplaintsClient({
     if (k === repeatSk) setRepeatSd((d) => (d === 'desc' ? 'asc' : 'desc'))
     else { setRepeatSk(k); setRepeatSd('desc') }
   }
-  function repeatArrow(k: RepeatSortKey) {
-    if (k !== repeatSk) return <span className="sort-arrow"> ↕</span>
-    return <span className="sort-arrow active"> {repeatSd === 'desc' ? '▼' : '▲'}</span>
-  }
   const sortedRepeat = useMemo(() => {
     const dir = repeatSd === 'desc' ? -1 : 1
     return [...repeatComplainers].sort((a, b) => {
@@ -76,23 +77,38 @@ export default function ComplaintsClient({
       if (repeatSk === 'score')      return dir * ((a.ambassador_score ?? 0) - (b.ambassador_score ?? 0))
       if (repeatSk === 'sentiment')  return dir * ((a.avg_sentiment_score ?? 0) - (b.avg_sentiment_score ?? 0))
       if (repeatSk === 'last_seen')  return dir * (new Date(a.last_seen_at ?? 0).getTime() - new Date(b.last_seen_at ?? 0).getTime())
+      if (repeatSk === 'username')   return dir * (a.username ?? '').localeCompare(b.username ?? '')
+      if (repeatSk === 'topic')      return dir * (a.dominant_topic ?? '').localeCompare(b.dominant_topic ?? '')
       return 0
     })
   }, [repeatComplainers, repeatSk, repeatSd])
 
+  const isResolved = (c: ComplaintWithUrl) =>
+    c.joola_responded || localResolved.has(c.comment_id ?? '')
+
   const totalComplaints = allComplaints.length
-  const respondedCount = allComplaints.filter((c) => c.joola_responded).length
+  const respondedCount = allComplaints.filter((c) => isResolved(c)).length
   const openCount = totalComplaints - respondedCount
   const responseRate = totalComplaints > 0 ? (respondedCount / totalComplaints * 100) : 0
 
   const filtered = useMemo(() => {
+    const q = compSearch.trim().toLowerCase()
     return allComplaints.filter((c) => {
+      const resolved = c.joola_responded || localResolved.has(c.comment_id ?? '')
       if (catFilter !== 'All' && c.complaint_category !== catFilter) return false
-      if (responded === 'open' && c.joola_responded) return false
-      if (responded === 'closed' && !c.joola_responded) return false
+      if (responded === 'open' && resolved) return false
+      if (responded === 'closed' && !resolved) return false
+      if (q) {
+        const text = (c.complaint_text ?? '').toLowerCase()
+        const user = (c.username ?? '').toLowerCase()
+        if (!text.includes(q) && !user.includes(q)) return false
+      }
       return true
     })
-  }, [allComplaints, catFilter, responded])
+  }, [allComplaints, catFilter, responded, compSearch, localResolved])
+
+  const { visibleRows: visibleFiltered, containerRef: queueContainerRef, sentinelRef: queueSentinelRef, hasMore: queueHasMore, total: queueTotal, shown: queueShown } = usePagedRows(filtered)
+  const { visibleRows: visibleRepeat, containerRef: repeatContainerRef, sentinelRef: repeatSentinelRef, hasMore: repeatHasMore, total: repeatTotal, shown: repeatShown } = usePagedRows(sortedRepeat)
 
   const maxCat = Math.max(...categoryData.map((d) => d.count), 1)
 
@@ -271,6 +287,17 @@ export default function ComplaintsClient({
 
             {view === 'queue' ? (
               <>
+                {/* Search */}
+                <div style={{ marginBottom: 10 }}>
+                  <input
+                    className="fld"
+                    placeholder="Search by username or complaint text…"
+                    value={compSearch}
+                    onChange={(e) => setCompSearch(e.target.value)}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
                 {/* Status filter */}
                 <div className="chip-row" style={{ marginBottom: 10 }}>
                   <button className={'chip ' + (responded === 'all' ? 'on' : '')} onClick={() => setResponded('all')}>
@@ -297,11 +324,13 @@ export default function ComplaintsClient({
                 )}
 
                 {/* Complaint rows */}
-                <div className="table-wrap scroll" style={{ maxHeight: 640 }}>
-                  {filtered.map((c, i) => {
+                <div ref={queueContainerRef} className="table-wrap scroll">
+                  {visibleFiltered.map((c, i) => {
                     const sev = (c.severity || 'low').toLowerCase()
+                    const resolved = isResolved(c)
+                    const id = c.comment_id ?? String(i)
                     return (
-                      <div className="comment-row" key={c.comment_id ?? i}>
+                      <div className="comment-row" key={id}>
                         <div className="comment-user">
                           <span className="uname">@{c.username}</span>
                           {c.complained_at && (
@@ -318,33 +347,64 @@ export default function ComplaintsClient({
                               {sev === 'high' ? '⚠ ' : ''}{sev.toUpperCase()}
                             </span>
                             {c.complaint_category && <span className="pill pill-ghost">{c.complaint_category}</span>}
-                            {c.joola_responded
+                            {resolved
                               ? <span className="pill pill-green">✓ RESPONDED</span>
                               : <span className="pill pill-amber">PENDING</span>}
+                            {!c.joola_responded && (
+                              <button
+                                onClick={() => setLocalResolved(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(id)) next.delete(id); else next.add(id)
+                                  return next
+                                })}
+                                style={{
+                                  marginLeft: 'auto',
+                                  background: resolved ? 'rgba(34,197,94,0.1)' : 'none',
+                                  border: `1px solid ${resolved ? 'var(--joola)' : 'var(--line)'}`,
+                                  borderRadius: 6,
+                                  color: resolved ? 'var(--joola)' : 'var(--fg-4)',
+                                  fontSize: 11,
+                                  padding: '3px 10px',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  transition: 'all 0.15s',
+                                }}
+                                title={resolved ? 'Mark as pending' : 'Mark as resolved'}
+                              >
+                                {resolved ? '✓ Resolved' : 'Mark resolved'}
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
                     )
                   })}
+                  {queueHasMore && (
+                    <div ref={queueSentinelRef} style={{ padding: '10px 0', textAlign: 'center', fontSize: 11, color: 'var(--fg-4)' }}>
+                      {queueTotal - queueShown} more — scroll to load
+                    </div>
+                  )}
                   {filtered.length === 0 && <div className="empty">No complaints match your filters.</div>}
                 </div>
               </>
             ) : (
-              <div className="table-wrap">
+              <div ref={repeatContainerRef} className="table-wrap scroll">
                 <table className="data">
                   <thead>
                     <tr>
-                      <th>#</th>
-                      <th>USER</th>
-                      <th className="num sortable" onClick={() => repeatSort('complaints')}>COMPLAINTS<Tip text="Total number of flagged complaints from this user. Click a row to see the actual comments." />{repeatArrow('complaints')}</th>
-                      <th>DOMINANT TOPIC<Tip text="The topic this user complains about most often" /></th>
-                      <th className="num sortable" onClick={() => repeatSort('score')}>AMBASSADOR<Tip text="Ambassador score — a repeat complainer with a high score may just need attention, not to be written off" />{repeatArrow('score')}</th>
-                      <th className="num sortable" onClick={() => repeatSort('sentiment')}>AVG SENT<Tip text="Average sentiment across all their comments — negative means they're consistently unhappy" />{repeatArrow('sentiment')}</th>
-                      <th className="sortable" onClick={() => repeatSort('last_seen')}>LAST SEEN{repeatArrow('last_seen')}</th>
+                      <th title="Rank and expand toggle">#</th>
+                      <SortableTh active={repeatSk === 'username'} direction={repeatSd} onClick={() => repeatSort('username')} title="Instagram username — sort alphabetically">USER</SortableTh>
+                      <SortableTh num active={repeatSk === 'complaints'} direction={repeatSd} onClick={() => repeatSort('complaints')} title="Total number of flagged complaints from this user. Click a row to see the actual comments.">COMPLAINTS</SortableTh>
+                      <SortableTh active={repeatSk === 'topic'} direction={repeatSd} onClick={() => repeatSort('topic')} title="The topic this user complains about most often — sort to group by category">DOMINANT TOPIC</SortableTh>
+                      <SortableTh num active={repeatSk === 'score'} direction={repeatSd} onClick={() => repeatSort('score')} title="Ambassador score — a repeat complainer with a high score may just need attention, not to be written off">AMBASSADOR</SortableTh>
+                      <SortableTh num active={repeatSk === 'sentiment'} direction={repeatSd} onClick={() => repeatSort('sentiment')} title="Average sentiment across all their comments — negative means they're consistently unhappy">AVG SENT</SortableTh>
+                      <SortableTh active={repeatSk === 'last_seen'} direction={repeatSd} onClick={() => repeatSort('last_seen')} title="Date this user was last seen commenting">LAST SEEN</SortableTh>
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedRepeat.map((u, i) => {
+                    {visibleRepeat.map((u, i) => {
                       const userComplaints = complaintsByUser.get((u.username || '').toLowerCase()) ?? []
                       const isOpen = expandedUser === u.username
                       return (
@@ -437,6 +497,13 @@ export default function ComplaintsClient({
                         </Fragment>
                       )
                     })}
+                    {repeatHasMore && (
+                      <tr ref={repeatSentinelRef}>
+                        <td colSpan={7} style={{ textAlign: 'center', padding: '10px 0', fontSize: 11, color: 'var(--fg-4)' }}>
+                          {repeatTotal - repeatShown} more — scroll to load
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
                 {repeatComplainers.length === 0 && <div className="empty">No repeat complainers — every flagged comment is from a different user.</div>}

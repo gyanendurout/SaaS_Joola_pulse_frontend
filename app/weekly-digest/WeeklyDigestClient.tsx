@@ -81,11 +81,42 @@ function StatCard({ label, value, sub, delta, invertedDelta = false, tooltip }: 
 
 type HistSortKey = 'week' | 'posts' | 'comments' | 'views' | 'er' | 'sent' | 'complaints' | 'intent'
 
+function calcDeltas(cur: IgWeeklySnapshot, prev: IgWeeklySnapshot | null) {
+  function delta(a: number | null | undefined, b: number | null | undefined) {
+    const av = a ?? 0, bv = b ?? 0
+    return { abs: av - bv, pct: bv === 0 ? 0 : ((av - bv) / bv) * 100 }
+  }
+  if (!prev) return null
+  return {
+    posts:      delta(cur.posts_published, prev.posts_published),
+    comments:   delta(cur.total_comments, prev.total_comments),
+    views:      delta(cur.total_views, prev.total_views),
+    er:         delta(cur.avg_engagement_rate, prev.avg_engagement_rate),
+    complaints: delta(cur.complaint_count, prev.complaint_count),
+    purchase:   delta(cur.purchase_intent_count, prev.purchase_intent_count),
+    competitor: delta(cur.competitor_mention_count, prev.competitor_mention_count),
+    wishlist:   delta(cur.wishlist_count, prev.wishlist_count),
+    sentiment:  delta(cur.avg_sentiment_score, prev.avg_sentiment_score),
+  }
+}
+
 export default function WeeklyDigestClient({
   current, previous, deltas, topPost, topComplaint, wishlist, superFans, competitorBreakdown, history,
 }: Props) {
+  // Week navigation: 0 = most recent snapshot, positive index = older weeks
+  const [viewIdx, setViewIdx] = useState(0)
   const [histSk, setHistSk] = useState<HistSortKey>('week')
   const [histSd, setHistSd] = useState<'asc' | 'desc'>('desc')
+
+  // Sorted history (newest-first) to navigate between
+  const sortedByDate = useMemo(
+    () => [...history].sort((a, b) => new Date(b.week_start).getTime() - new Date(a.week_start).getTime()),
+    [history]
+  )
+  const viewSnap = sortedByDate[viewIdx] ?? current
+  const prevSnap = sortedByDate[viewIdx + 1] ?? null
+  const isCurrentWeek = viewIdx === 0
+  const viewDeltas = viewSnap ? calcDeltas(viewSnap, prevSnap) : null
 
   function histSort(k: HistSortKey) {
     if (k === histSk) setHistSd((d) => (d === 'desc' ? 'asc' : 'desc'))
@@ -94,19 +125,19 @@ export default function WeeklyDigestClient({
   const sortedHistory = useMemo(() => {
     const dir = histSd === 'desc' ? -1 : 1
     return [...history].sort((a, b) => {
-      if (histSk === 'week') return dir * (new Date(a.week_start).getTime() - new Date(b.week_start).getTime())
-      if (histSk === 'posts') return dir * ((a.posts_published ?? 0) - (b.posts_published ?? 0))
-      if (histSk === 'comments') return dir * ((a.total_comments ?? 0) - (b.total_comments ?? 0))
-      if (histSk === 'views') return dir * ((a.total_views ?? 0) - (b.total_views ?? 0))
-      if (histSk === 'er') return dir * ((a.avg_engagement_rate ?? 0) - (b.avg_engagement_rate ?? 0))
-      if (histSk === 'sent') return dir * ((a.avg_sentiment_score ?? 0) - (b.avg_sentiment_score ?? 0))
+      if (histSk === 'week')       return dir * (new Date(a.week_start).getTime() - new Date(b.week_start).getTime())
+      if (histSk === 'posts')      return dir * ((a.posts_published ?? 0) - (b.posts_published ?? 0))
+      if (histSk === 'comments')   return dir * ((a.total_comments ?? 0) - (b.total_comments ?? 0))
+      if (histSk === 'views')      return dir * ((a.total_views ?? 0) - (b.total_views ?? 0))
+      if (histSk === 'er')         return dir * ((a.avg_engagement_rate ?? 0) - (b.avg_engagement_rate ?? 0))
+      if (histSk === 'sent')       return dir * ((a.avg_sentiment_score ?? 0) - (b.avg_sentiment_score ?? 0))
       if (histSk === 'complaints') return dir * ((a.complaint_count ?? 0) - (b.complaint_count ?? 0))
-      if (histSk === 'intent') return dir * ((a.purchase_intent_count ?? 0) - (b.purchase_intent_count ?? 0))
+      if (histSk === 'intent')     return dir * ((a.purchase_intent_count ?? 0) - (b.purchase_intent_count ?? 0))
       return 0
     })
   }, [history, histSk, histSd])
 
-  if (!current) {
+  if (!viewSnap) {
     return (
       <div>
         <header className="page-head">
@@ -121,7 +152,7 @@ export default function WeeklyDigestClient({
     )
   }
 
-  const weekLabel = `${format(new Date(current.week_start), 'MMM d')} – ${format(new Date(current.week_end), 'MMM d, yyyy')}`
+  const weekLabel = `${format(new Date(viewSnap.week_start), 'MMM d')} – ${format(new Date(viewSnap.week_end), 'MMM d, yyyy')}`
   const generatedLabel = format(new Date(), 'MMM d, yyyy')
 
   return (
@@ -145,44 +176,82 @@ export default function WeeklyDigestClient({
             Generated {generatedLabel}
           </div>
         </div>
-        <div className="head-actions" data-print="hide">
+        <div className="head-actions" data-print="hide" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* Week navigation */}
+          <button
+            className="btn"
+            disabled={viewIdx >= sortedByDate.length - 1}
+            onClick={() => setViewIdx(i => i + 1)}
+            title="Previous week"
+            style={{ fontSize: 13, padding: '5px 12px' }}
+          >
+            ← Prev
+          </button>
+          <span style={{ fontSize: 11, color: 'var(--fg-4)', minWidth: 80, textAlign: 'center' }}>
+            {isCurrentWeek ? 'Latest week' : `${sortedByDate.length - viewIdx} of ${sortedByDate.length}`}
+          </span>
+          <button
+            className="btn"
+            disabled={viewIdx <= 0}
+            onClick={() => setViewIdx(i => i - 1)}
+            title="Next week (more recent)"
+            style={{ fontSize: 13, padding: '5px 12px' }}
+          >
+            Next →
+          </button>
           <button className="btn btn-yellow" data-print="hide" onClick={() => window.print()}>
-            🖨 Print / PDF
+            Print / PDF
           </button>
         </div>
       </header>
 
+      {/* Historical week notice */}
+      {!isCurrentWeek && (
+        <div style={{
+          margin: '0 0 14px',
+          padding: '8px 14px',
+          background: 'rgba(245,230,37,0.06)',
+          border: '1px solid rgba(245,230,37,0.2)',
+          borderRadius: 6,
+          fontSize: 11.5,
+          color: 'var(--fg-3)',
+        }}>
+          <strong style={{ color: 'var(--yellow)' }}>Historical view</strong> — KPI stats show data for {weekLabel}.
+          The detailed sections below (top post, fans, wishlist) always reflect the latest available data.
+        </div>
+      )}
+
       {/* Top-line stats */}
       <div className="section">
         <div className="kpi-grid">
-          <StatCard label="Posts Published" value={fmtNum(current.posts_published)}
-            sub="this week vs last week" delta={deltas?.posts}
+          <StatCard label="Posts Published" value={fmtNum(viewSnap.posts_published)}
+            sub="this week vs last week" delta={viewDeltas?.posts}
             tooltip="How many posts JOOLA published this week compared to last week" />
-          <StatCard label="Total Comments" value={fmtNum(current.total_comments)}
-            sub={`${fmtNum(current.total_likes)} likes`} delta={deltas?.comments}
+          <StatCard label="Total Comments" value={fmtNum(viewSnap.total_comments)}
+            sub={`${fmtNum(viewSnap.total_likes)} likes`} delta={viewDeltas?.comments}
             tooltip="Total audience comments received this week — a measure of how much your content sparked conversation" />
-          <StatCard label="Total Views" value={fmtNum(current.total_views)}
-            sub="reels + video" delta={deltas?.views}
+          <StatCard label="Total Views" value={fmtNum(viewSnap.total_views)}
+            sub="reels + video" delta={viewDeltas?.views}
             tooltip="Combined view count across all Reels and video content published this week" />
-          <StatCard label="Avg Engagement Rate" value={(current.avg_engagement_rate * 100).toFixed(2) + '%'}
-            sub="(likes + comments) ÷ reach" delta={deltas?.er}
+          <StatCard label="Avg Engagement Rate" value={(viewSnap.avg_engagement_rate * 100).toFixed(2) + '%'}
+            sub="(likes + comments) ÷ reach" delta={viewDeltas?.er}
             tooltip="Engagement Rate = (likes + comments) ÷ people who saw the post. Example: post seen by 10,000 with 600 likes + 50 comments = 6.5%. Benchmarks: 6%+ excellent, 3–6% healthy, under 3% needs attention." />
         </div>
       </div>
 
       <div className="section">
         <div className="kpi-grid">
-          <StatCard label="Purchase Signals" value={fmtNum(current.purchase_intent_count)}
-            sub="AI-detected buy intent" delta={deltas?.purchase}
+          <StatCard label="Purchase Signals" value={fmtNum(viewSnap.purchase_intent_count)}
+            sub="AI-detected buy intent" delta={viewDeltas?.purchase}
             tooltip="Comments this week where fans indicated they want to buy a product — warm leads for the sales team" />
-          <StatCard label="Complaints" value={fmtNum(current.complaint_count)}
-            sub="negative + flagged" delta={deltas?.complaints} invertedDelta
+          <StatCard label="Complaints" value={fmtNum(viewSnap.complaint_count)}
+            sub="negative + flagged" delta={viewDeltas?.complaints} invertedDelta
             tooltip="Negative comments flagged this week — lower is better. Spikes signal a product or service issue to investigate." />
-          <StatCard label="Competitor Mentions" value={fmtNum(current.competitor_mention_count)}
-            sub="in your own post comments" delta={deltas?.competitor} invertedDelta
+          <StatCard label="Competitor Mentions" value={fmtNum(viewSnap.competitor_mention_count)}
+            sub="in your own post comments" delta={viewDeltas?.competitor} invertedDelta
             tooltip="How many times competing brands were mentioned in your own comment sections this week" />
-          <StatCard label="Wishlist Items" value={fmtNum(current.wishlist_count ?? 0)}
-            sub="product requests" delta={deltas?.wishlist}
+          <StatCard label="Wishlist Items" value={fmtNum(viewSnap.wishlist_count ?? 0)}
+            sub="product requests" delta={viewDeltas?.wishlist}
             tooltip="Product and feature requests from fans this week — feed these into your product roadmap" />
         </div>
       </div>
@@ -195,19 +264,19 @@ export default function WeeklyDigestClient({
             <div style={{ display: 'flex', gap: 18, alignItems: 'baseline', flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--joola)' }}>
-                  {(current.positive_comment_pct ?? 0).toFixed(0)}%
+                  {(viewSnap.positive_comment_pct ?? 0).toFixed(0)}%
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--fg-4)' }}>positive</div>
               </div>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 600, color: '#94a3b8' }}>
-                  {(current.neutral_comment_pct ?? 0).toFixed(0)}%
+                  {(viewSnap.neutral_comment_pct ?? 0).toFixed(0)}%
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--fg-4)' }}>neutral</div>
               </div>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--red)' }}>
-                  {(current.negative_comment_pct ?? 0).toFixed(0)}%
+                  {(viewSnap.negative_comment_pct ?? 0).toFixed(0)}%
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--fg-4)' }}>negative</div>
               </div>
@@ -215,14 +284,14 @@ export default function WeeklyDigestClient({
             <div className="divider" />
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--fg-3)' }}>
               <span>Avg sentiment score</span>
-              <span className="mono" style={{ fontWeight: 700, color: (current.avg_sentiment_score ?? 0) >= 0 ? 'var(--joola)' : 'var(--red)' }}>
-                {(current.avg_sentiment_score ?? 0).toFixed(3)}
+              <span className="mono" style={{ fontWeight: 700, color: (viewSnap.avg_sentiment_score ?? 0) >= 0 ? 'var(--joola)' : 'var(--red)' }}>
+                {(viewSnap.avg_sentiment_score ?? 0).toFixed(3)}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--fg-3)', marginTop: 4 }}>
               <span>Top emotion</span>
               <span className="mono" style={{ fontWeight: 700, color: 'var(--yellow)' }}>
-                {formatEnum(current.top_emotion)}
+                {formatEnum(viewSnap.top_emotion)}
               </span>
             </div>
           </div>
@@ -230,17 +299,17 @@ export default function WeeklyDigestClient({
           <div className="card card-pad-lg">
             <div className="card-head"><h3>DOMINANT THEME<Tip text="The content theme you posted most this week. Consistent theming helps your audience know what to expect and builds brand identity." /></h3><span className="meta">what we posted this week</span></div>
             <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--yellow)', marginBottom: 8 }}>
-              {formatEnum(current.dominant_content_theme)}
+              {formatEnum(viewSnap.dominant_content_theme)}
             </div>
             <div style={{ fontSize: 12, color: 'var(--fg-3)', lineHeight: 1.5 }}>
-              Out of {current.posts_published} posts this week, this was the most-used content theme.
+              Out of {viewSnap.posts_published} posts this week, this was the most-used content theme.
             </div>
-            {current.top_post_engagement != null && (
+            {viewSnap.top_post_engagement != null && (
               <>
                 <div className="divider" />
                 <div style={{ fontSize: 11, color: 'var(--fg-4)', letterSpacing: '0.08em' }}>BEST POST</div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--joola)', marginTop: 2 }}>
-                  {(current.top_post_engagement || 0).toLocaleString()} interactions
+                  {(viewSnap.top_post_engagement || 0).toLocaleString()} interactions
                 </div>
               </>
             )}
@@ -250,24 +319,24 @@ export default function WeeklyDigestClient({
             <div className="card-head"><h3>AUDIENCE<Tip text="New vs returning commenters shows whether you're growing your community or retaining an existing one. New super fans are your emerging advocates." /></h3><span className="meta">commenter growth · this week</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '4px 0' }}>
               <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>New commenters</span>
-              <span className="mono" style={{ fontSize: 20, fontWeight: 700, color: 'var(--joola)' }}>+{current.new_commenters ?? 0}</span>
+              <span className="mono" style={{ fontSize: 20, fontWeight: 700, color: 'var(--joola)' }}>+{viewSnap.new_commenters ?? 0}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '4px 0' }}>
               <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>Returning</span>
-              <span className="mono" style={{ fontSize: 20, fontWeight: 700, color: 'var(--yellow)' }}>{current.returning_commenters ?? 0}</span>
+              <span className="mono" style={{ fontSize: 20, fontWeight: 700, color: 'var(--yellow)' }}>{viewSnap.returning_commenters ?? 0}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '4px 0' }}>
               <span style={{ fontSize: 12, color: 'var(--fg-3)' }}>New super fans</span>
-              <span className="mono" style={{ fontSize: 20, fontWeight: 700, color: 'var(--pink)' }}>{current.new_super_fans ?? 0}</span>
+              <span className="mono" style={{ fontSize: 20, fontWeight: 700, color: 'var(--pink)' }}>{viewSnap.new_super_fans ?? 0}</span>
             </div>
             <div className="divider" />
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--fg-3)' }}>
               <span>JOOLA replies</span>
-              <span className="mono" style={{ fontWeight: 700 }}>{current.joola_reply_count ?? 0}</span>
+              <span className="mono" style={{ fontWeight: 700 }}>{viewSnap.joola_reply_count ?? 0}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--fg-3)', marginTop: 4 }}>
               <span>Avg response time</span>
-              <span className="mono" style={{ fontWeight: 700 }}>{current.avg_joola_response_time_mins != null ? current.avg_joola_response_time_mins + ' min' : '—'}</span>
+              <span className="mono" style={{ fontWeight: 700 }}>{viewSnap.avg_joola_response_time_mins != null ? viewSnap.avg_joola_response_time_mins + ' min' : '—'}</span>
             </div>
           </div>
         </div>
@@ -338,7 +407,7 @@ export default function WeeklyDigestClient({
         <div className="card-grid cg-3">
           <div className="card card-pad-lg">
             <div className="card-head"><h3>★ TOP WISHLIST<Tip text="Most-requested products and features from fans across all time — your crowdsourced R&D backlog." /></h3><span className="meta">all-time, ranked</span></div>
-            <div style={{ maxHeight: 280, overflowY: 'auto', overscrollBehavior: 'contain' }}>
+            <div className="table-wrap scroll">
               {wishlist.length === 0 ? <div className="empty">No requests.</div> :
                 wishlist.map((w, i) => (
                   <div key={w.comment_id ?? i} style={{ padding: '8px 0', borderBottom: '1px solid var(--line-2)' }}>
@@ -406,7 +475,7 @@ export default function WeeklyDigestClient({
             <h3>8-WEEK HISTORY<Tip text="Your key metrics week by week so you can spot trends, seasonal patterns, and the impact of specific content pushes. Click any column to sort." /></h3>
             <span className="meta">posts · comments · ER · sentiment · last 8 wk</span>
           </div>
-          <div className="table-wrap">
+          <div className="table-wrap scroll">
             <table className="data">
               <thead>
                 <tr>
@@ -423,10 +492,10 @@ export default function WeeklyDigestClient({
               </thead>
               <tbody>
                 {sortedHistory.map((w, i) => (
-                  <tr key={w.week_start} className={w.week_start === current.week_start ? 'highlight' : ''}>
+                  <tr key={w.week_start} className={w.week_start === viewSnap.week_start ? 'highlight' : ''}>
                     <td className="mono" style={{ fontSize: 11 }}>
                       {format(new Date(w.week_start), 'MMM d')}
-                      {w.week_start === current.week_start && <span className="you-badge">CURRENT</span>}
+                      {w.week_start === viewSnap.week_start && <span className="you-badge">{isCurrentWeek ? 'CURRENT' : 'VIEWING'}</span>}
                     </td>
                     <td className="cell-num">{w.posts_published}</td>
                     <td className="cell-num">{fmtNum(w.total_comments)}</td>

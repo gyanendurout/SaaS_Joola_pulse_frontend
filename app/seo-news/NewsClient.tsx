@@ -588,7 +588,7 @@ function SourcesTab({ articles }: { articles: NewsArticle[] }) {
       {sourceStats.length === 0 ? (
         <div className="empty">No source data</div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
+        <div className="table-wrap scroll">
           <table className="data" style={{ width: '100%', fontSize: 12 }}>
             <thead>
               <tr>

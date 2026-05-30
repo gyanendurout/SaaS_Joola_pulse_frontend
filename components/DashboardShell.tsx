@@ -28,6 +28,7 @@ const ICONS: Record<string, string[]> = {
   xmark:     ["M18 6L6 18", "M6 6l12 12"],
   pencil:    ["M12 20h9", "M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4L16.5 3.5z"],
   sparkle:   ["M12 3l2.5 5.5L20 11l-5.5 2.5L12 19l-2.5-5.5L4 11l5.5-2.5L12 3z"],
+  trending:  ["M22 12h-4l-3 9L9 3l-3 9H2"],
   play:      ["M5 3l14 9-14 9V3z"],
   drafts:    ["M4 4h12l4 4v12H4z", "M16 4v4h4", "M8 13h8", "M8 17h5"],
 }
@@ -59,6 +60,8 @@ const NAV: Array<{ section: string; items: NavItem[] }> = [
     items: [
       { id: 'overview',       label: 'Overview',           icon: 'home',      href: '/overview',     badge: 'LIVE' },
       { id: 'weekly-digest',  label: 'Weekly Digest',      icon: 'posts',     href: '/weekly-digest' },
+      { id: 'products',       label: 'Paddle Intel',       icon: 'sparkle',   href: '/products' },
+      { id: 'trends',         label: 'Trends',             icon: 'trending',  href: '/trends' },
     ],
   },
   {
@@ -127,7 +130,7 @@ export default function DashboardShell({
   useEffect(() => {
     if (draftCountProp !== undefined) return
     const ac = new AbortController()
-    fetch('/api/content/draft-count', { signal: ac.signal })
+    fetch('/seo-api/content/drafts?limit=1', { signal: ac.signal })
       .then(r => (r.ok ? r.json() : null))
       .then(j => {
         if (j && typeof j.total === 'number') setFetchedCount(j.total)
@@ -492,7 +495,7 @@ export default function DashboardShell({
                   />
                 )}
                 {collapsed && <Ic paths={ICONS.drafts} size={14} />}
-                <span className="ni-label">Drafts</span>
+                <span className="ni-label">Studio</span>
                 <span
                   className="ni-badge"
                   style={{
@@ -531,7 +534,7 @@ export default function DashboardShell({
         </aside>
 
         <main className={mainCls}>
-          <div className="main-inner">
+          <div className="main-inner" key={pathname}>
             {children}
           </div>
         </main>

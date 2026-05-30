@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { usePagedRows } from '@/lib/usePagedRows'
 import { format } from 'date-fns'
 import KpiCard from '@/components/ui/KpiCard'
 import { Donut, DonutLegend } from '@/components/ui/Donut'
@@ -232,6 +233,8 @@ export default function CommentsClient({
     const q = search.toLowerCase().trim()
     return viralitySlow.filter((v) => matchVirality(v, q))
   }, [viralitySlow, search])
+
+  const { visibleRows, containerRef, sentinelRef, hasMore, total, shown } = usePagedRows(filtered)
 
   const totalSentiment = sentimentData.reduce((s, d) => s + d.value, 0) || 1
   const sentimentSlices: DonutSlice[] = sentimentData.map((d) => ({
@@ -503,8 +506,8 @@ export default function CommentsClient({
               </div>
             ) : (
               /* Comment rows */
-              <div style={{ maxHeight: 520, overflowY: 'auto' }}>
-                {filtered.slice(0, 50).map((c, i) => {
+              <div ref={containerRef} className="table-wrap scroll">
+                {visibleRows.map((c, i) => {
                   const sent = (c.sentiment || 'neutral').toLowerCase()
                   return (
                     <div className="comment-row" key={c.comment_id ?? i}>
@@ -546,9 +549,9 @@ export default function CommentsClient({
                   )
                 })}
                 {filtered.length === 0 && <div className="empty">No comments match your filters.</div>}
-                {filtered.length > 50 && (
-                  <div style={{ padding: '12px 0', textAlign: 'center', fontSize: 11, color: 'var(--fg-4)' }}>
-                    Showing 50 of {filtered.length} comments
+                {hasMore && (
+                  <div ref={sentinelRef} style={{ padding: '10px 0', textAlign: 'center', fontSize: 11, color: 'var(--fg-4)' }}>
+                    {total - shown} more — scroll to load
                   </div>
                 )}
               </div>

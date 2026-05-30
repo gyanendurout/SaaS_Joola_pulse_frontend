@@ -308,7 +308,7 @@ export default function ContentHubClient({ drafts }: Props) {
               : 'No drafts match your filters.'}
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div className="table-wrap scroll">
             <table className="data">
               <thead>
                 <tr>

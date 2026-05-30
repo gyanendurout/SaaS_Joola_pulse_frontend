@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { SortableTh, ExtLink } from '@/components/ui/SortableTh'
 import { Tip } from '@/components/ui/Tip'
+import { usePagedRows } from '@/lib/usePagedRows'
 import type { YtChannel, YtVideo, YtChannelWeekly, YtComment } from './page'
 
 interface Props {
@@ -152,6 +153,9 @@ export default function YoutubeClient({
   const shorts = videos.filter(isShort).length
   const longform = videos.length - shorts
 
+  const { visibleRows: visibleVideos, containerRef: videoContainerRef, sentinelRef: videoSentinelRef, hasMore: videosHasMore, total: videoTotal, shown: videoShown } = usePagedRows(filteredVideos)
+  const { visibleRows: visibleComments, containerRef: commentContainerRef, sentinelRef: commentSentinelRef, hasMore: commentsHasMore, total: commentTotal, shown: commentShown } = usePagedRows(filteredComments)
+
   return (
     <div>
       <div className="page-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
@@ -265,7 +269,7 @@ export default function YoutubeClient({
           {filteredVideos.length === 0 ? (
             <div className="empty">No videos match your filters.</div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
+            <div ref={videoContainerRef} className="table-wrap scroll">
               <table className="data" style={{ width: '100%' }}>
                 <thead>
                   <tr>
@@ -281,7 +285,7 @@ export default function YoutubeClient({
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredVideos.map(v => (
+                  {visibleVideos.map(v => (
                     <tr key={v.id}>
                       <td>
                         {v.thumbnail_url ? (
@@ -317,6 +321,13 @@ export default function YoutubeClient({
                       <td><ExtLink href={v.video_url} label="Open on YouTube" /></td>
                     </tr>
                   ))}
+                  {videosHasMore && (
+                    <tr ref={videoSentinelRef}>
+                      <td colSpan={9} style={{ textAlign: 'center', padding: '10px 0', color: 'var(--fg-4)', fontSize: 11 }}>
+                        {videoTotal - videoShown} more — scroll to load
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -395,7 +406,7 @@ export default function YoutubeClient({
             {filteredComments.length === 0 ? (
               <div className="empty">No comments match your filters.</div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
+              <div ref={commentContainerRef} className="table-wrap scroll">
                 <table className="data" style={{ width: '100%' }}>
                   <thead>
                     <tr>
@@ -408,7 +419,7 @@ export default function YoutubeClient({
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredComments.map(c => {
+                    {visibleComments.map(c => {
                       const vid = videoById[c.video_id]
                       return (
                         <tr key={c.id} style={c.is_brand_reply ? { background: 'color-mix(in srgb, var(--joola) 6%, transparent)' } : undefined}>
@@ -458,6 +469,13 @@ export default function YoutubeClient({
                         </tr>
                       )
                     })}
+                    {commentsHasMore && (
+                      <tr ref={commentSentinelRef}>
+                        <td colSpan={6} style={{ textAlign: 'center', padding: '10px 0', color: 'var(--fg-4)', fontSize: 11 }}>
+                          {commentTotal - commentShown} more — scroll to load
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -473,7 +491,7 @@ export default function YoutubeClient({
           {weeklyStats.length === 0 ? (
             <div className="empty">No weekly stats available yet.</div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
+            <div className="table-wrap scroll">
               <table className="data" style={{ width: '100%' }}>
                 <thead>
                   <tr>
@@ -486,16 +504,39 @@ export default function YoutubeClient({
                   </tr>
                 </thead>
                 <tbody>
-                  {weeklyStats.map(w => (
-                    <tr key={w.id}>
-                      <td style={{ fontWeight: 600 }}>W{w.week_number}/{w.year}</td>
-                      <td className="cell-num">{fmt(w.subscribers)}</td>
-                      <td className="cell-num">{w.total_videos ?? '—'}</td>
-                      <td className="cell-num">{w.videos_uploaded_this_week ?? 0}</td>
-                      <td className="cell-num">{fmt(w.avg_views_last_10_videos)}</td>
-                      <td className="cell-num" style={{ fontSize: 12, color: 'var(--fg-4)' }}>{fmtDate(w.scraped_at)}</td>
-                    </tr>
-                  ))}
+                  {(() => {
+                    const sorted = [...weeklyStats].sort((a, b) =>
+                      a.year !== b.year ? a.year - b.year : a.week_number - b.week_number
+                    )
+                    const rows: React.ReactNode[] = []
+                    sorted.forEach((w, i) => {
+                      if (i > 0) {
+                        const prev = sorted[i - 1]
+                        const prevAbsWeek = prev.year * 53 + prev.week_number
+                        const curAbsWeek = w.year * 53 + w.week_number
+                        if (curAbsWeek - prevAbsWeek > 1) {
+                          rows.push(
+                            <tr key={`gap-${prev.id}-${w.id}`}>
+                              <td colSpan={6} style={{ textAlign: 'center', padding: '6px 10px', background: 'rgba(245,180,37,0.05)', borderTop: '1px dashed rgba(245,180,37,0.3)', borderBottom: '1px dashed rgba(245,180,37,0.3)', color: 'var(--yellow)', fontSize: 11 }}>
+                                ⚠ Data gap — W{prev.week_number + 1}/{prev.year}{curAbsWeek - prevAbsWeek > 2 ? `…W${w.week_number - 1}/${w.year}` : ''} not scraped
+                              </td>
+                            </tr>
+                          )
+                        }
+                      }
+                      rows.push(
+                        <tr key={w.id}>
+                          <td style={{ fontWeight: 600 }}>W{w.week_number}/{w.year}</td>
+                          <td className="cell-num">{fmt(w.subscribers)}</td>
+                          <td className="cell-num">{w.total_videos ?? '—'}</td>
+                          <td className="cell-num">{w.videos_uploaded_this_week ?? 0}</td>
+                          <td className="cell-num">{fmt(w.avg_views_last_10_videos)}</td>
+                          <td className="cell-num" style={{ fontSize: 12, color: 'var(--fg-4)' }}>{fmtDate(w.scraped_at)}</td>
+                        </tr>
+                      )
+                    })
+                    return rows
+                  })()}
                 </tbody>
               </table>
             </div>

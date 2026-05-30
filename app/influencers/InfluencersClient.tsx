@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { SortableTh, ExtLink } from '@/components/ui/SortableTh'
 import { Tip } from '@/components/ui/Tip'
 import { formatEnum } from '@/lib/format'
+import { usePagedRows } from '@/lib/usePagedRows'
 import type { Influencer, InfluencerPost } from './page'
 
 interface Props {
@@ -92,7 +93,6 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
       if (inf.instagram_handle) { m.instagram.athletes++; m.instagram.reach += inf.follower_count_ig ?? 0 }
       if (inf.tiktok_handle) m.tiktok.athletes++
       if (inf.youtube_channel_url) { m.youtube.athletes++; m.youtube.reach += inf.follower_count_yt ?? 0 }
-      if (inf.x_handle) m.x.athletes++
     }
     for (const p of posts) {
       const plat = (p.platform || '').toLowerCase()
@@ -132,6 +132,8 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
 
   const avgLikesPerPost = posts.length ? Math.round(totalLikes / posts.length) : 0
   const selectedInfData = selectedInf !== 'all' ? infMap[selectedInf] : null
+
+  const { visibleRows: visiblePosts, containerRef, sentinelRef, hasMore, total, shown } = usePagedRows(filteredPosts)
 
   return (
     <div>
@@ -302,8 +304,8 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
             {
               key: 'x',
               label: 'X',
-              handle: inf.x_handle,
-              url: inf.x_handle ? `https://x.com/${inf.x_handle}` : null,
+              handle: null,
+              url: null,
               followers: null as number | null,
               posts: ps.x?.count ?? 0,
               color: '#FFFFFF',
@@ -335,11 +337,16 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
                   {initials(inf.name)}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                     {inf.name}
                     {!inf.is_active && (
-                      <span style={{ marginLeft: 6, fontSize: 9, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        inactive
+                      <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(148,163,184,0.15)', border: '1px solid rgba(148,163,184,0.3)', color: 'var(--fg-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        Inactive
+                      </span>
+                    )}
+                    {inf.is_active && totalAthletePosts === 0 && (
+                      <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(245,230,37,0.08)', border: '1px dashed rgba(245,230,37,0.35)', color: 'var(--yellow)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        No data
                       </span>
                     )}
                   </div>
@@ -478,7 +485,7 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
         {filteredPosts.length === 0 ? (
           <div className="empty">No posts match your filters.</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div ref={containerRef} className="table-wrap scroll">
             <table className="data" style={{ width: '100%' }}>
               <thead>
                 <tr>
@@ -494,9 +501,9 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
                 </tr>
               </thead>
               <tbody>
-                {filteredPosts.map((p, idx) => {
+                {visiblePosts.map((p, idx) => {
                   const inf = infMap[p.influencer_id]
-                  const prev = idx > 0 ? filteredPosts[idx - 1] : null
+                  const prev = idx > 0 ? visiblePosts[idx - 1] : null
                   const isRepeat = prev != null && prev.influencer_id === p.influencer_id
                   return (
                     <tr key={p.id}>
@@ -520,19 +527,7 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
                         </button>
                       </td>
                       <td>
-                        {p.post_url ? (
-                          <a
-                            href={p.post_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            title={`Open ${p.platform} post`}
-                            style={{ textDecoration: 'none' }}
-                          >
-                            <span className="chip" style={{ fontSize: 10, textTransform: 'capitalize', cursor: 'pointer' }}>{p.platform}</span>
-                          </a>
-                        ) : (
-                          <span className="chip" style={{ fontSize: 10, textTransform: 'capitalize' }}>{p.platform}</span>
-                        )}
+                        <span className="chip" style={{ fontSize: 10, textTransform: 'capitalize' }}>{p.platform}</span>
                       </td>
                       <td className="cell-num" style={{ fontWeight: 600 }}>{fmt(p.like_count)}</td>
                       <td className="cell-num">{fmt(p.view_count)}</td>
@@ -558,6 +553,13 @@ export default function InfluencersClient({ influencers, posts, totalReach, tota
                     </tr>
                   )
                 })}
+                {hasMore && (
+                  <tr ref={sentinelRef}>
+                    <td colSpan={9} style={{ textAlign: 'center', padding: '10px 0', color: 'var(--fg-4)', fontSize: 11 }}>
+                      {total - shown} more — scroll to load
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

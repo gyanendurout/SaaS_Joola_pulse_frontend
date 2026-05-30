@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { usePagedRows } from '@/lib/usePagedRows'
 import { format } from 'date-fns'
 import KpiCard from '@/components/ui/KpiCard'
 import { Tip } from '@/components/ui/Tip'
+import { SortableTh } from '@/components/ui/SortableTh'
 import type { IgLoyalUser } from '@/lib/types'
 
 interface FansClientProps {
@@ -29,7 +31,7 @@ function scoreClass(score: number): string {
 }
 
 type FilterType = 'all' | 'ambassador' | 'super' | 'regular' | 'buyers' | 'repeat_complainers' | 'cross_brand'
-type FanSortKey = 'score' | 'comments' | 'sentiment' | 'intent' | 'wishlist' | 'complaints' | 'months'
+type FanSortKey = 'score' | 'comments' | 'sentiment' | 'intent' | 'wishlist' | 'complaints' | 'months' | 'username' | 'tier' | 'topic' | 'followers'
 
 export default function FansClient({ allUsers, ambassadorList, superFans, regularFans }: FansClientProps) {
   const [filter, setFilter] = useState<FilterType>('all')
@@ -40,10 +42,6 @@ export default function FansClient({ allUsers, ambassadorList, superFans, regula
   function doSort(k: FanSortKey) {
     if (k === sk) setSd((d) => (d === 'desc' ? 'asc' : 'desc'))
     else { setSk(k); setSd('desc') }
-  }
-  function arrow(k: FanSortKey) {
-    if (k !== sk) return <span className="sort-arrow"> ↕</span>
-    return <span className="sort-arrow active"> {sd === 'desc' ? '▼' : '▲'}</span>
   }
 
   const filtered = useMemo(() => {
@@ -67,6 +65,10 @@ export default function FansClient({ allUsers, ambassadorList, superFans, regula
       if (sk === 'wishlist')   return dir * ((a.wishlist_count ?? 0) - (b.wishlist_count ?? 0))
       if (sk === 'complaints') return dir * ((a.complaint_count ?? 0) - (b.complaint_count ?? 0))
       if (sk === 'months')     return dir * ((a.active_months ?? 0) - (b.active_months ?? 0))
+      if (sk === 'username')   return dir * a.username.localeCompare(b.username)
+      if (sk === 'tier')       return dir * (a.loyalty_tier ?? '').localeCompare(b.loyalty_tier ?? '')
+      if (sk === 'topic')      return dir * (a.dominant_topic ?? '').localeCompare(b.dominant_topic ?? '')
+      if (sk === 'followers')  return dir * ((a.follower_count ?? -1) - (b.follower_count ?? -1))
       return 0
     })
   }, [allUsers, filter, search, sk, sd])
@@ -82,6 +84,8 @@ export default function FansClient({ allUsers, ambassadorList, superFans, regula
   const avgScore = allUsers.length > 0
     ? (allUsers.reduce((s, u) => s + (u.ambassador_score || 0), 0) / allUsers.length).toFixed(1)
     : '0'
+
+  const { visibleRows, containerRef, sentinelRef, hasMore, total, shown } = usePagedRows(filtered)
 
   // Tenure distribution for bar chart
   const tenureBuckets: Record<string, number> = {}
@@ -157,26 +161,26 @@ export default function FansClient({ allUsers, ambassadorList, superFans, regula
                 <button className={'chip ' + (filter === 'cross_brand' ? 'on' : '')} onClick={() => setFilter('cross_brand')}>Cross-Brand ({crossBrandCount})</button>
               </div>
             </div>
-            <div className="table-wrap scroll">
+            <div ref={containerRef} className="table-wrap scroll">
               <table className="data">
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>USER</th>
-                    <th>TIER</th>
-                    <th>TOPIC<Tip text="What this fan talks about most in their comments" /></th>
-                    <th className="num sortable" onClick={() => doSort('score')}>SCORE<Tip text="Ambassador score 0–100 based on frequency, positivity, and consistency of engagement. 60+ qualifies as a potential ambassador." />{arrow('score')}</th>
-                    <th className="num sortable" onClick={() => doSort('comments')}>COMMENTS<Tip text="Total number of times this fan has commented" />{arrow('comments')}</th>
-                    <th className="num sortable" onClick={() => doSort('sentiment')}>SENTIMENT<Tip text="Average positivity score of this fan's comments — higher is better" />{arrow('sentiment')}</th>
-                    <th className="num sortable" onClick={() => doSort('intent')}>INTENT<Tip text="Number of times this fan showed buying interest in comments" />{arrow('intent')}</th>
-                    <th className="num sortable" onClick={() => doSort('wishlist')}>WISH<Tip text="Number of product or feature requests made by this fan" />{arrow('wishlist')}</th>
-                    <th className="num sortable" onClick={() => doSort('complaints')}>COMP<Tip text="Number of complaints made by this fan — high numbers need attention" />{arrow('complaints')}</th>
-                    <th className="num sortable" onClick={() => doSort('months')}>MONTHS<Tip text="How many months this fan has been actively commenting on JOOLA posts" />{arrow('months')}</th>
-                    <th className="num">FOLLOWERS<Tip text="Instagram follower count — high-follower fans have influencer potential" /></th>
+                    <th title="Rank within current filter">#</th>
+                    <SortableTh active={sk === 'username'} direction={sd} onClick={() => doSort('username')} title="Instagram username — sort alphabetically">USER</SortableTh>
+                    <SortableTh active={sk === 'tier'} direction={sd} onClick={() => doSort('tier')} title="Loyalty tier — Ambassador > Super Fan > Regular. Sort to group by tier.">TIER</SortableTh>
+                    <SortableTh active={sk === 'topic'} direction={sd} onClick={() => doSort('topic')} title="Most common topic this fan discusses in comments — sort to group fans by interest area.">TOPIC</SortableTh>
+                    <SortableTh num active={sk === 'score'} direction={sd} onClick={() => doSort('score')} title="Ambassador score 0–100 based on frequency, positivity, and consistency of engagement. 60+ qualifies as a potential ambassador.">SCORE</SortableTh>
+                    <SortableTh num active={sk === 'comments'} direction={sd} onClick={() => doSort('comments')} title="Total number of times this fan has commented">COMMENTS</SortableTh>
+                    <SortableTh num active={sk === 'sentiment'} direction={sd} onClick={() => doSort('sentiment')} title="Average positivity score of this fan's comments — higher is better">SENTIMENT</SortableTh>
+                    <SortableTh num active={sk === 'intent'} direction={sd} onClick={() => doSort('intent')} title="Number of times this fan showed buying interest in comments">INTENT</SortableTh>
+                    <SortableTh num active={sk === 'wishlist'} direction={sd} onClick={() => doSort('wishlist')} title="Number of product or feature requests made by this fan">WISH</SortableTh>
+                    <SortableTh num active={sk === 'complaints'} direction={sd} onClick={() => doSort('complaints')} title="Number of complaints made by this fan — high numbers need attention">COMP</SortableTh>
+                    <SortableTh num active={sk === 'months'} direction={sd} onClick={() => doSort('months')} title="How many months this fan has been actively commenting on JOOLA posts">MONTHS</SortableTh>
+                    <SortableTh num active={sk === 'followers'} direction={sd} onClick={() => doSort('followers')} title="Instagram follower count — high-follower fans have influencer potential">FOLLOWERS</SortableTh>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.slice(0, 100).map((u, i) => (
+                  {visibleRows.map((u, i) => (
                     <tr key={u.username} className={u.is_potential_ambassador ? 'highlight' : ''}>
                       <td className="mono" style={{ fontSize: 11, color: 'var(--fg-4)' }}>
                         {String(i + 1).padStart(2, '0')}
@@ -252,14 +256,16 @@ export default function FansClient({ allUsers, ambassadorList, superFans, regula
                       </td>
                     </tr>
                   ))}
+                  {hasMore && (
+                    <tr ref={sentinelRef}>
+                      <td colSpan={12} style={{ textAlign: 'center', padding: '10px 0', color: 'var(--fg-4)', fontSize: 11 }}>
+                        {total - shown} more — scroll to load
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
               {filtered.length === 0 && <div className="empty">No users match your filters.</div>}
-              {filtered.length > 100 && (
-                <div style={{ padding: '12px 0', textAlign: 'center', fontSize: 11, color: 'var(--fg-4)' }}>
-                  Showing 100 of {filtered.length} fans
-                </div>
-              )}
             </div>
           </div>
 

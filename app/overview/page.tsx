@@ -39,6 +39,7 @@ export default async function OverviewPage() {
       .returns<Pick<IgCommentAnalysis, 'sentiment' | 'primary_topic'>>(),
     supabase.from('joola_ig_loyal_users')
       .select('username, loyalty_tier, is_potential_ambassador, ambassador_score')
+      .order('ambassador_score', { ascending: false })
       .returns<Pick<IgLoyalUser, 'username' | 'loyalty_tier' | 'is_potential_ambassador' | 'ambassador_score'>>(),
     supabase.from('joola_ig_complaint_log')
       .select('comment_id, joola_responded')
@@ -76,9 +77,6 @@ export default async function OverviewPage() {
   const loyalArr = loyalUsers as unknown as IgLoyalUser[] ?? []
   const complaintArr = complaints as unknown as IgComplaintLog[] ?? []
   const topPostArr = (topPosts as unknown as IgPost[] ?? []).map(normEr)
-  const signalDateRange = snaps.length > 0
-    ? `${format(new Date(snaps[0].week_start), 'MMM d')} - ${format(new Date(snaps[snaps.length - 1].week_end), 'MMM d, yyyy')}`
-    : 'No weekly range'
 
   // KPIs
   const totalPosts = postArr.length
@@ -227,7 +225,6 @@ export default async function OverviewPage() {
 
   const overviewData: OverviewData = {
     lastSync: format(new Date(), 'MMM d · HH:mm'),
-    signalDateRange,
     totalPosts,
     totalComments,
     avgEngagement,

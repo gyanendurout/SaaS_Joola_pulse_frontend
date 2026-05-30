@@ -1,11 +1,12 @@
 'use client'
 
 import React, { useState, useMemo, useEffect } from 'react'
+import { usePagedRows } from '@/lib/usePagedRows'
 import { SortableTh, ExtLink } from '@/components/ui/SortableTh'
 import { Tip } from '@/components/ui/Tip'
 import { NewsArticleGenerateCTA } from '@/components/content/NewsArticleGenerateCTA'
 import { formatEnum } from '@/lib/format'
-import type { RedditMention } from './page'
+import type { RedditMention, PaddleRedditStat } from './page'
 
 const BANNER_DISMISS_KEY = 'joola.reddit.banner-dismissed'
 
@@ -16,6 +17,7 @@ interface Props {
   oppCount: number
   switchCount: number
   subredditBreakdown: { name: string; count: number }[]
+  paddleStats: PaddleRedditStat[]
 }
 
 function fmtDate(s: string | null | undefined): string {
@@ -38,13 +40,14 @@ function sentimentBadge(s: string | null) {
 type FlagFilter = 'all' | 'crisis' | 'opportunity'
 type SortKey = 'flag' | 'title' | 'subreddit' | 'author' | 'upvotes' | 'sentiment' | 'date'
 
-export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppCount, switchCount, subredditBreakdown }: Props) {
+export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppCount, switchCount, subredditBreakdown, paddleStats }: Props) {
   const [subredditFilter, setSubredditFilter] = useState<string>('all')
   const [flagFilter, setFlagFilter] = useState<FlagFilter>('all')
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('upvotes')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [bannerDismissed, setBannerDismissed] = useState(false)
+  const [paddleFilter, setPaddleFilter] = useState<string>('all')
 
   useEffect(() => {
     try {
@@ -73,6 +76,7 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
     if (subredditFilter !== 'all') list = list.filter(m => m.subreddit === subredditFilter)
     if (flagFilter === 'crisis') list = list.filter(m => m.is_crisis)
     if (flagFilter === 'opportunity') list = list.filter(m => m.is_opportunity)
+    if (paddleFilter !== 'all') list = list.filter(m => m.products_mentioned?.includes(paddleFilter))
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(m =>
@@ -98,7 +102,7 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
         case 'date': return ((a.posted_at ?? a.scraped_at ?? '').localeCompare(b.posted_at ?? b.scraped_at ?? '')) * dirMul
       }
     })
-  }, [mentions, subredditFilter, flagFilter, search, sortKey, sortDir])
+  }, [mentions, subredditFilter, flagFilter, paddleFilter, search, sortKey, sortDir])
 
   const maxCount = subredditBreakdown[0]?.count ?? 1
 
@@ -109,6 +113,8 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
     }
     return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 12)
   }, [mentions])
+
+  const { visibleRows, containerRef, sentinelRef, hasMore, total, shown } = usePagedRows(filtered)
 
   return (
     <div>
@@ -298,10 +304,82 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
         </div>
       </div>
 
+      {paddleStats.length > 0 && (
+        <div className="card card-pad-lg" style={{ marginBottom: 24 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', marginBottom: 20 }}>
+            Paddle Buzz on Reddit
+            <Tip text="Which JOOLA paddles appear most in Reddit discussions. Click any paddle to filter the mentions table below to posts mentioning that paddle." />
+            {paddleFilter !== 'all' && (
+              <button
+                className="btn"
+                style={{ marginLeft: 'auto', fontSize: 11, padding: '2px 10px' }}
+                onClick={() => setPaddleFilter('all')}
+              >
+                Clear filter
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {paddleStats.map((p, i) => {
+              const barPct = Math.max((p.mentions / paddleStats[0].mentions) * 100, 4)
+              const isActive = paddleFilter === p.name
+              const positiveShare = p.mentions ? Math.round((p.positive / p.mentions) * 100) : 0
+              return (
+                <div
+                  key={p.name}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+                  onClick={() => setPaddleFilter(isActive ? 'all' : p.name)}
+                >
+                  <div style={{
+                    width: 22, fontSize: 11, fontWeight: 700, flexShrink: 0, textAlign: 'right',
+                    color: i === 0 ? 'var(--yellow)' : 'var(--fg-4)',
+                  }}>
+                    #{i + 1}
+                  </div>
+                  <div style={{
+                    width: 148, fontSize: 13, flexShrink: 0,
+                    fontWeight: isActive ? 700 : i === 0 ? 600 : 400,
+                    color: isActive ? 'var(--yellow)' : 'inherit',
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>
+                    {p.name}
+                  </div>
+                  <div style={{ flex: 1, height: 6, background: 'var(--bg-3)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', width: `max(${barPct}%, 4px)`,
+                      background: isActive ? 'var(--yellow)' : 'var(--joola)',
+                      borderRadius: 3, transition: 'width 0.3s',
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 600, width: 32, textAlign: 'right', flexShrink: 0 }}>
+                    {p.mentions}
+                  </div>
+                  {p.upvotes > 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--fg-4)', width: 72, textAlign: 'right', flexShrink: 0 }}>
+                      {p.upvotes} upvotes
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: positiveShare >= 50 ? 'var(--joola)' : 'var(--fg-4)', width: 54, textAlign: 'right', flexShrink: 0 }}>
+                    {positiveShare}% pos
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div style={{
+            marginTop: 12, fontSize: 11, color: 'var(--fg-4)',
+            borderTop: '1px solid var(--border)', paddingTop: 10,
+          }}>
+            Click any paddle to filter the mentions table · {mentions.filter(m => (m.products_mentioned?.length ?? 0) > 0).length} of {mentions.length} posts have paddle tags
+          </div>
+        </div>
+      )}
+
       <div className="card card-pad-lg">
         <div className="card-head" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
           <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center' }}>
             Mentions
+            {paddleFilter !== 'all' && ` — ${paddleFilter}`}
             {subredditFilter !== 'all' && ` — ${subredditFilter}`}
             {flagFilter === 'crisis' && ' — 🚨 Crisis only'}
             {flagFilter === 'opportunity' && ' — 💡 Opportunity only'}
@@ -327,7 +405,7 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
         {filtered.length === 0 ? (
           <div className="empty">No mentions match your filters.</div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div ref={containerRef} className="table-wrap scroll">
             <table className="data" style={{ width: '100%' }}>
               <thead>
                 <tr>
@@ -342,7 +420,7 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(m => (
+                {visibleRows.map(m => (
                   <tr key={m.id} style={m.is_crisis ? { background: 'color-mix(in srgb, #f87171 5%, transparent)' } : undefined}>
                     <td>
                       {m.is_crisis && <span style={{ fontSize: 14 }} title="Crisis signal">🚨</span>}
@@ -428,6 +506,13 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
                     </td>
                   </tr>
                 ))}
+                {hasMore && (
+                  <tr ref={sentinelRef}>
+                    <td colSpan={8} style={{ textAlign: 'center', padding: '10px 0', color: 'var(--fg-4)', fontSize: 11 }}>
+                      {total - shown} more — scroll to load
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

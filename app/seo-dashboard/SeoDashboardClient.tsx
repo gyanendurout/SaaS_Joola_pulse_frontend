@@ -2,6 +2,8 @@
 
 import { useState, useMemo } from 'react'
 import KpiCard from '@/components/ui/KpiCard'
+import { SortableTh } from '@/components/ui/SortableTh'
+import { Tip } from '@/components/ui/Tip'
 import type { SeoIssue, SeoKeyword, SeoReco, BacklinkSummary, OnPageItem, CompetitorDomain, GapSummary } from './page'
 
 interface Props {
@@ -44,22 +46,6 @@ function fmtRunDate(s: string) {
     const m = d.getUTCMinutes().toString().padStart(2,'0')
     return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()} · ${h}:${m} UTC`
   } catch { return 'latest run' }
-}
-
-// ── Sort Arrow ─────────────────────────────────────────────────────────
-function SortArrow({ col, active, dir }: { col: string; active: string; dir: 'asc' | 'desc' }) {
-  if (col !== active) return <span style={{ opacity: 0.25, fontSize: 9, marginLeft: 3 }}>↕</span>
-  return <span style={{ marginLeft: 3, color: 'var(--yellow)', fontSize: 9 }}>{dir === 'asc' ? '↑' : '↓'}</span>
-}
-
-// ── Info Tooltip — matches the Tip component's visual style ────────────
-function InfoTip({ text }: { text: string }) {
-  return (
-    <span className="tip-wrap" style={{ marginLeft: 6 }}>
-      <span className="tip-icon">?</span>
-      <span className="tip-popup">{text}</span>
-    </span>
-  )
 }
 
 // ── Health Score Ring ──────────────────────────────────────────────────
@@ -300,11 +286,14 @@ export default function SeoDashboardClient({
   latestRunDate, onPageItems, competitors, gapSummary,
 }: Props) {
   const [sev, setSev]               = useState('all')
+  const [kwSearch, setKwSearch]     = useState('')
   const [kwTab, setKwTab]           = useState<'all' | 'ranked' | 'gap' | 'top10'>('all')
-  const [kwSort, setKwSort]         = useState<'vol' | 'kd' | 'pos'>('vol')
+  const [kwSort, setKwSort]         = useState<'vol' | 'kd' | 'pos' | 'keyword' | 'delta'>('vol')
   const [kwDir, setKwDir]           = useState<'asc' | 'desc'>('desc')
-  const [compSort, setCompSort]     = useState<'intersections' | 'avg_position'>('intersections')
+  const [compSort, setCompSort]     = useState<'intersections' | 'avg_position' | 'domain' | 'our_avg_pos'>('intersections')
   const [compDir, setCompDir]       = useState<'asc' | 'desc'>('desc')
+  const [opSort, setOpSort]         = useState<'title' | 'h1' | 'words' | 'url' | 'meta' | 'index'>('words')
+  const [opDir, setOpDir]           = useState<'asc' | 'desc'>('desc')
   const [openReco, setOpenReco]     = useState<SeoReco | null>(null)
   const [openIssue, setOpenIssue]   = useState<typeof displayIssues[0] | null>(null)
 
@@ -335,18 +324,27 @@ export default function SeoDashboardClient({
   )
 
   const filteredKeywords = useMemo(() => {
-    if (kwTab === 'ranked')  return keywords.filter(k => k.position != null)
-    if (kwTab === 'gap')     return keywords.filter(k => k.is_gap)
-    if (kwTab === 'top10')   return keywords.filter(k => k.position != null && k.position <= 10)
-    return keywords
-  }, [keywords, kwTab])
+    let kws = kwSearch.trim()
+      ? keywords.filter(k => k.keyword.toLowerCase().includes(kwSearch.toLowerCase()))
+      : keywords
+    if (kwTab === 'ranked') return kws.filter(k => k.position != null)
+    if (kwTab === 'gap')    return kws.filter(k => k.is_gap)
+    if (kwTab === 'top10')  return kws.filter(k => k.position != null && k.position <= 10)
+    return kws
+  }, [keywords, kwTab, kwSearch])
 
   const sortedKeywords = useMemo(() => {
     const d = kwDir === 'asc' ? 1 : -1
     return [...filteredKeywords].sort((a, b) => {
-      if (kwSort === 'vol') return d * (a.search_volume - b.search_volume)
-      if (kwSort === 'kd')  return d * ((a.difficulty ?? 0) - (b.difficulty ?? 0))
-      if (kwSort === 'pos') return d * ((a.position ?? 9999) - (b.position ?? 9999))
+      if (kwSort === 'vol')     return d * (a.search_volume - b.search_volume)
+      if (kwSort === 'kd')      return d * ((a.difficulty ?? 0) - (b.difficulty ?? 0))
+      if (kwSort === 'pos')     return d * ((a.position ?? 9999) - (b.position ?? 9999))
+      if (kwSort === 'keyword') return d * a.keyword.localeCompare(b.keyword)
+      if (kwSort === 'delta') {
+        const da = a.position != null && a.previous_position != null ? a.previous_position - a.position : -9999
+        const db = b.position != null && b.previous_position != null ? b.previous_position - b.position : -9999
+        return d * (da - db)
+      }
       return 0
     })
   }, [filteredKeywords, kwSort, kwDir])
@@ -358,17 +356,36 @@ export default function SeoDashboardClient({
     return unique.sort((a, b) => {
       if (compSort === 'intersections') return d * (a.intersections - b.intersections)
       if (compSort === 'avg_position')  return d * ((a.avg_position ?? 99) - (b.avg_position ?? 99))
+      if (compSort === 'domain')        return d * a.domain.localeCompare(b.domain)
+      if (compSort === 'our_avg_pos')   return 0 // static value, stable sort
       return 0
     })
   }, [competitors, compSort, compDir])
 
-  function toggleKwSort(col: 'vol' | 'kd' | 'pos') {
+  const sortedOnPage = useMemo(() => {
+    const d = opDir === 'asc' ? 1 : -1
+    return [...onPageItems].sort((a, b) => {
+      if (opSort === 'url')   return d * a.url.localeCompare(b.url)
+      if (opSort === 'title') return d * ((a.title?.length ?? 0) - (b.title?.length ?? 0))
+      if (opSort === 'meta')  return d * ((a.meta_description?.length ?? 0) - (b.meta_description?.length ?? 0))
+      if (opSort === 'h1')    return d * ((a.h1?.length > 0 ? 1 : 0) - (b.h1?.length > 0 ? 1 : 0))
+      if (opSort === 'words') return d * ((a.word_count ?? -1) - (b.word_count ?? -1))
+      if (opSort === 'index') return d * ((a.is_indexable ? 1 : 0) - (b.is_indexable ? 1 : 0))
+      return 0
+    })
+  }, [onPageItems, opSort, opDir])
+
+  function toggleKwSort(col: 'vol' | 'kd' | 'pos' | 'keyword' | 'delta') {
     if (kwSort === col) setKwDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setKwSort(col); setKwDir('desc') }
   }
-  function toggleCompSort(col: 'intersections' | 'avg_position') {
+  function toggleCompSort(col: 'intersections' | 'avg_position' | 'domain' | 'our_avg_pos') {
     if (compSort === col) setCompDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setCompSort(col); setCompDir('desc') }
+  }
+  function toggleOpSort(col: 'title' | 'h1' | 'words' | 'url' | 'meta' | 'index') {
+    if (opSort === col) setOpDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setOpSort(col); setOpDir('desc') }
   }
 
   const prioColor = (p: string) => p === 'critical' ? 'var(--red)' : p === 'high' ? 'var(--warn)' : p === 'medium' ? '#60a5fa' : 'var(--fg-4)'
@@ -412,38 +429,31 @@ export default function SeoDashboardClient({
       <div className="section">
         <div className="kpi-grid">
           <KpiCard variant="danger" label="ISSUES DETECTED" src={`${criticalCount} critical · ${highCount} high`}
-            tooltip="Total SEO issues found by the last crawl. Critical = blocks indexing or causes ranking loss immediately. High = significant impact if left unfixed. Fix critical issues first."
             value={issues.length}
             trend={[58,56,54,54,52,52,50,50,52,51,50,50,issues.length]}
             delta="▼ -8 this wk" dir="up" />
           <KpiCard label="GSC CLICKS" src={_daysAgoLabel(28)}
-            tooltip="Total clicks from Google Search in the last 28 days — the number of times someone clicked a JOOLA result in Google. More clicks = more organic traffic. Source: Google Search Console."
             value={184000}
             trend={[200,210,215,212,208,205,200,196,194,190,188,186,184].map(v => v*1000)}
             delta="▼ -1.1%" dir="down" />
           <KpiCard variant="joola" label="IMPRESSIONS" src={_daysAgoLabel(28)}
-            tooltip="How many times JOOLA pages appeared in Google search results in the last 28 days, whether or not someone clicked. High impressions with low CTR means your titles and descriptions need improvement. Source: Google Search Console."
             value={4824000}
             trend={[4400,4520,4600,4640,4680,4720,4760,4780,4790,4800,4810,4820,4824].map(v => v*1000)}
             delta="▲ +9.2%" dir="up" />
           <KpiCard variant="warn" label="AVG POSITION" src="all tracked queries"
-            tooltip="Average ranking position across all tracked keywords. Position 1 = top Google result, 10 = bottom of page 1. Lower is better — aim for under 10 to stay on page 1. A drop (higher number) means competitors are outranking JOOLA."
             value={rankHistory[rankHistory.length - 1]}
             trend={rankHistory}
             delta="▼ -0.8" dir="down" />
         </div>
         <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
           <KpiCard label="CTR" src="clicks ÷ impressions" value={3.82} unit="%"
-            tooltip="Click-Through Rate = clicks ÷ impressions. Shows what percentage of people who see JOOLA in Google actually click through. Industry benchmark for branded queries is 5–10%. A low CTR means your title tags and meta descriptions aren't compelling enough."
             trend={[4.2,4.1,4.05,4.0,3.95,3.95,3.92,3.9,3.88,3.86,3.84,3.83,3.82]}
             delta="▼ -0.38pp" dir="down" />
           <KpiCard label="BACKLINKS" src={`${fmtNum(backlinkSummary.referring_domains)} ref domains`}
-            tooltip="Total backlinks pointing to JOOLA's website from external sites. More high-quality backlinks = higher domain authority = better rankings. The ref domains count shows how many unique websites link to JOOLA — diversity matters more than raw count."
             value={backlinkSummary.total_backlinks}
             trend={[22000,22400,22800,23100,23400,23700,24000,24200,24400,24600,24700,24780,24820]}
             delta="▲ +1.2%" dir="up" />
           <KpiCard variant="joola" label="KEYWORD COVERAGE" src="ranked / target"
-            tooltip="How many of JOOLA's target keywords are currently ranking on Google (312) out of the total tracked (421). Closing this gap means more organic visibility. Keywords not yet ranking are opportunities for new content or optimization."
             value="312 / 421"
             trend={[280,285,290,295,298,300,302,305,308,310,311,312,312]}
             delta="▲ +18" dir="up" />
@@ -455,7 +465,7 @@ export default function SeoDashboardClient({
         <div className="card-grid cg-2">
           <div className="card card-pad-lg">
             <div className="card-head">
-              <h3>HEALTH BREAKDOWN <InfoTip text="A 0–100 score based on how many SEO issues your site has. Critical issues reduce the score most. Green = good, amber = needs attention, red = urgent." /></h3>
+              <h3>HEALTH BREAKDOWN <Tip text="A 0–100 score based on how many SEO issues your site has. Critical issues reduce the score most. Green = good, amber = needs attention, red = urgent." /></h3>
               <span className="meta">rule-engine · 23 checks · by severity</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginBottom: 22 }}>
@@ -479,7 +489,7 @@ export default function SeoDashboardClient({
 
           <div className="card card-pad-lg">
             <div className="card-head">
-              <h3>QUICK WINS <InfoTip text="Issues that are high-impact but relatively low-effort to fix. Fixing these first gives you the biggest SEO improvement for the least work." /></h3>
+              <h3>QUICK WINS <Tip text="Issues that are high-impact but relatively low-effort to fix. Fixing these first gives you the biggest SEO improvement for the least work." /></h3>
               <span className="meta">auto-detected · high impact · low effort</span>
             </div>
             {quickWins.map((issue, idx) => {
@@ -522,7 +532,7 @@ export default function SeoDashboardClient({
         <div className="card-grid cg-2-1">
           <div className="card card-pad-lg">
             <div className="card-head">
-              <h3>★ AI RECOMMENDATIONS <InfoTip text="GPT-4o analyses all detected issues and keyword gaps, then ranks actions by expected business impact. Click any row to see step-by-step instructions." /></h3>
+              <h3>★ AI RECOMMENDATIONS <Tip text="GPT-4o analyses all detected issues and keyword gaps, then ranks actions by expected business impact. Click any row to see step-by-step instructions." /></h3>
               <span className="meta">GPT-4o · ranked by impact</span>
             </div>
             {recommendations.map((r, i) => {
@@ -558,7 +568,7 @@ export default function SeoDashboardClient({
               <div className="card-head">
                 <h3>
                   KEYWORD RANK · &ldquo;pickleball paddles&rdquo;
-                  <InfoTip text={`Where joola.com appears on Google when someone searches "pickleball paddles". #1 is the top result and the most-clicked spot — lower position number is better. We track this term because it is JOOLA's primary head term: roughly 60K US searches per month and the biggest single-keyword opportunity for paddle traffic.`} />
+                  <Tip text={`Where joola.com appears on Google when someone searches "pickleball paddles". #1 is the top result and the most-clicked spot — lower position number is better. We track this term because it is JOOLA's primary head term: roughly 60K US searches per month and the biggest single-keyword opportunity for paddle traffic.`} />
                 </h3>
                 <span className="meta" style={{ color: 'var(--fg-3)' }}>
                   JOOLA&apos;s #1 target head term &middot; {_daysAgoLabel(91)} &middot; GSC
@@ -598,7 +608,7 @@ export default function SeoDashboardClient({
             </div>
             <div className="card card-pad-lg">
               <div className="card-head">
-                <h3>BACKLINK PROFILE <InfoTip text="Backlinks are links from other websites pointing to joola.com. Google uses them as votes of trust — more high-quality links = better rankings. Dofollow links pass ranking power; nofollow do not." /></h3>
+                <h3>BACKLINK PROFILE <Tip text="Backlinks are links from other websites pointing to joola.com. Google uses them as votes of trust — more high-quality links = better rankings. Dofollow links pass ranking power; nofollow do not." /></h3>
                 <span className="meta">DataForSEO</span>
               </div>
               <Row2 k="Total backlinks"   v={fmtNum(backlinkSummary.total_backlinks)}
@@ -622,7 +632,7 @@ export default function SeoDashboardClient({
           {/* Issues */}
           <div className="card card-pad-lg">
             <div className="card-head">
-              <h3>TECHNICAL ISSUES <InfoTip text="Problems found on your site that hurt your Google rankings. Critical = fix today, High = fix this week, Medium/Low = fix this month." /></h3>
+              <h3>TECHNICAL ISSUES <Tip text="Problems found on your site that hurt your Google rankings. Critical = fix today, High = fix this week, Medium/Low = fix this month." /></h3>
               <div className="chip-row" style={{ alignItems: 'center' }}>
                 <span className="meta" style={{ marginRight: 4 }}>rule-engine · 23 checks</span>
                 {([['all','All',issues.length],['critical',`Critical`,criticalCount],['high','High',highCount],['medium','Med+Low',mediumCount+lowCount]] as [string, string, number][]).map(([k,label,n]) => (
@@ -654,7 +664,7 @@ export default function SeoDashboardClient({
           {/* Keywords */}
           <div className="card card-pad-lg" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="card-head">
-              <h3>KEYWORD OPPORTUNITIES <InfoTip text="Keywords people type into Google that are relevant to joola.com. The same keyword pool drives the Competitor Analysis below — competitors are sites that rank for these same terms." /></h3>
+              <h3>KEYWORD OPPORTUNITIES <Tip text="Keywords people type into Google that are relevant to joola.com. The same keyword pool drives the Competitor Analysis below — competitors are sites that rank for these same terms." /></h3>
               <div className="chip-row" style={{ alignItems: 'center' }}>
                 <span className="meta" style={{ marginRight: 4 }}>DataForSEO NLP · SERP</span>
                 {([['all','All',keywords.length],['ranked','Ranked',keywords.filter(k=>k.position!=null).length],['top10','Top 10',keywords.filter(k=>k.position!=null&&k.position<=10).length],['gap','Gap',keywords.filter(k=>k.is_gap).length]] as [string,string,number][]).map(([k,label,n]) => (
@@ -664,21 +674,34 @@ export default function SeoDashboardClient({
                 ))}
               </div>
             </div>
-            <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
+            <div style={{ marginBottom: 12 }}>
+              <input
+                className="fld"
+                placeholder="Filter keywords…"
+                value={kwSearch}
+                onChange={e => setKwSearch(e.target.value)}
+                style={{ width: '100%', maxWidth: 320 }}
+              />
+            </div>
+            <div className="table-wrap scroll">
               <table className="data">
                 <thead>
                   <tr>
-                    <th title="The search term people typed into Google. GAP = you don't rank for it yet but competitors do. Hover the COM/TRA/INF/NAV badge to see what each intent means.">KEYWORD</th>
-                    <th className="num sortable" onClick={() => toggleKwSort('vol')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Search Volume: estimated number of monthly Google searches. Higher = more potential traffic.">
-                      VOL <SortArrow col="vol" active={kwSort} dir={kwDir} />
-                    </th>
-                    <th className="num sortable" onClick={() => toggleKwSort('kd')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Keyword Difficulty (0–100): how hard it is to reach page 1 of Google. 0–40 = easy, 41–70 = medium, 71+ = hard.">
-                      KD <SortArrow col="kd" active={kwSort} dir={kwDir} />
-                    </th>
-                    <th className="num sortable" onClick={() => toggleKwSort('pos')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Your current Google ranking position for this keyword. Position 1 = top result. '—' means joola.com is not in the top 100.">
-                      POS <SortArrow col="pos" active={kwSort} dir={kwDir} />
-                    </th>
-                    <th title="Position change vs the previous analysis run. ▲ green = climbed in rankings, ▼ red = dropped, — = no change or no previous data.">Δ</th>
+                    <SortableTh active={kwSort === 'keyword'} direction={kwDir} onClick={() => toggleKwSort('keyword')} title="The search term people typed into Google. GAP = you don't rank for it yet but competitors do. Hover the COM/TRA/INF/NAV badge to see what each intent means.">
+                      KEYWORD
+                    </SortableTh>
+                    <SortableTh num active={kwSort === 'vol'} direction={kwDir} onClick={() => toggleKwSort('vol')} title="Search Volume: estimated number of monthly Google searches. Higher = more potential traffic.">
+                      VOL
+                    </SortableTh>
+                    <SortableTh num active={kwSort === 'kd'} direction={kwDir} onClick={() => toggleKwSort('kd')} title="Keyword Difficulty (0–100): how hard it is to reach page 1 of Google. 0–40 = easy, 41–70 = medium, 71+ = hard.">
+                      KD
+                    </SortableTh>
+                    <SortableTh num active={kwSort === 'pos'} direction={kwDir} onClick={() => toggleKwSort('pos')} title="Your current Google ranking position for this keyword. Position 1 = top result. '—' means joola.com is not in the top 100.">
+                      POS
+                    </SortableTh>
+                    <SortableTh num active={kwSort === 'delta'} direction={kwDir} onClick={() => toggleKwSort('delta')} title="Position change vs the previous analysis run. ▲ green = climbed in rankings (position number went down), ▼ red = dropped, — = no change or no previous data.">
+                      Δ
+                    </SortableTh>
                   </tr>
                 </thead>
                 <tbody>
@@ -722,23 +745,23 @@ export default function SeoDashboardClient({
       <div className="section">
         <div className="card card-pad-lg">
           <div className="card-head">
-            <h3>ON-PAGE SEO AUDIT <InfoTip text="Checks the basic SEO elements on each page: Title (shown in Google results, 50–60 chars ideal), Meta Description (the snippet under the title, 140–160 chars ideal), H1 (main heading on the page), Word Count (thin content under 300 words ranks poorly), Index (whether Google is allowed to include this page)." /></h3>
+            <h3>ON-PAGE SEO AUDIT <Tip text="Checks the basic SEO elements on each page: Title (shown in Google results, 50–60 chars ideal), Meta Description (the snippet under the title, 140–160 chars ideal), H1 (main heading on the page), Word Count (thin content under 300 words ranks poorly), Index (whether Google is allowed to include this page)." /></h3>
             <span className="meta">crawl4ai · BeautifulSoup · title · meta · H1 · words</span>
           </div>
-          <div className="table-wrap">
+          <div className="table-wrap scroll">
             <table className="data">
               <thead>
                 <tr>
-                  <th>PAGE URL</th>
-                  <th className="num">TITLE</th>
-                  <th className="num">META DESC</th>
-                  <th>H1</th>
-                  <th className="num">WORDS</th>
-                  <th>INDEX</th>
+                  <SortableTh active={opSort === 'url'} direction={opDir} onClick={() => toggleOpSort('url')} title="Page URL — sort alphabetically">PAGE URL</SortableTh>
+                  <SortableTh num active={opSort === 'title'} direction={opDir} onClick={() => toggleOpSort('title')} title="Title tag character count — ideal 50–60 chars. Sort to find missing or oversized titles.">TITLE</SortableTh>
+                  <SortableTh num active={opSort === 'meta'} direction={opDir} onClick={() => toggleOpSort('meta')} title="Meta description character count — ideal 140–160 chars. Sort to surface missing or short descriptions.">META DESC</SortableTh>
+                  <SortableTh active={opSort === 'h1'} direction={opDir} onClick={() => toggleOpSort('h1')} title="H1 heading presence — sort to bring pages missing an H1 to the top.">H1</SortableTh>
+                  <SortableTh num active={opSort === 'words'} direction={opDir} onClick={() => toggleOpSort('words')} title="Word count — pages under 300 words are considered thin content by Google. Sort ascending to find them.">WORDS</SortableTh>
+                  <SortableTh active={opSort === 'index'} direction={opDir} onClick={() => toggleOpSort('index')} title="Indexable — sort to surface pages blocked from Google crawling.">INDEX</SortableTh>
                 </tr>
               </thead>
               <tbody>
-                {onPageItems.map((p, idx) => (
+                {sortedOnPage.map((p, idx) => (
                   <tr key={idx}>
                     <td className="mono" style={{ fontSize: 10.5, color: 'var(--fg-3)', maxWidth: 220 }}>
                       <span title={p.url} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
@@ -774,21 +797,17 @@ export default function SeoDashboardClient({
         <div className="card-grid cg-2">
           <div className="card card-pad-lg">
             <div className="card-head">
-              <h3>COMPETITOR ANALYSIS <InfoTip text="Websites that rank on Google for the same keywords as joola.com. Detected from the exact same keyword pool as the Keyword Opportunities table. Shared KWs = how many terms you both appear for. Lower their avg position = stronger threat." /></h3>
+              <h3>COMPETITOR ANALYSIS <Tip text="Websites that rank on Google for the same keywords as joola.com. Detected from the exact same keyword pool as the Keyword Opportunities table. Shared KWs = how many terms you both appear for. Lower their avg position = stronger threat." /></h3>
               <span className="meta">DataForSEO Competitor Domains API · organic overlap</span>
             </div>
-            <div className="table-wrap">
+            <div className="table-wrap scroll">
               <table className="data">
                 <thead>
                   <tr>
-                    <th title="The competitor's website domain. These sites were found by DataForSEO by analysing which domains appear in the same Google search results as joola.com.">DOMAIN</th>
-                    <th className="num sortable" onClick={() => toggleCompSort('intersections')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Shared Keywords: how many keywords from joola.com's tracked list this competitor also ranks for. Higher = more direct overlap and stronger competition.">
-                      SHARED KWS <SortArrow col="intersections" active={compSort} dir={compDir} />
-                    </th>
-                    <th className="num sortable" onClick={() => toggleCompSort('avg_position')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Their average Google ranking across all shared keywords. Lower number = higher on the page = stronger competitor.">
-                      THEIR AVG POS <SortArrow col="avg_position" active={compSort} dir={compDir} />
-                    </th>
-                    <th className="num" title="joola.com's current average ranking position across shared keywords, for comparison.">OUR AVG POS</th>
+                    <SortableTh active={compSort === 'domain'} direction={compDir} onClick={() => toggleCompSort('domain')} title="Competitor domain — sort alphabetically">DOMAIN</SortableTh>
+                    <SortableTh num active={compSort === 'intersections'} direction={compDir} onClick={() => toggleCompSort('intersections')} title="Shared Keywords: how many keywords from joola.com's tracked list this competitor also ranks for. Higher = more direct overlap and stronger competition.">SHARED KWS</SortableTh>
+                    <SortableTh num active={compSort === 'avg_position'} direction={compDir} onClick={() => toggleCompSort('avg_position')} title="Their average Google ranking across all shared keywords. Lower number = higher on the page = stronger competitor.">THEIR AVG POS</SortableTh>
+                    <SortableTh num active={compSort === 'our_avg_pos'} direction={compDir} onClick={() => toggleCompSort('our_avg_pos')} title="joola.com's current average ranking position across shared keywords, for comparison.">OUR AVG POS</SortableTh>
                   </tr>
                 </thead>
                 <tbody>
@@ -812,7 +831,7 @@ export default function SeoDashboardClient({
 
           <div className="card card-pad-lg">
             <div className="card-head">
-              <h3>GOOGLE SEARCH CONSOLE <InfoTip text="Direct data from Google on how joola.com is performing in search. Clicks = people who visited the site, Impressions = how many times the site appeared in results, CTR = % of impressions that led to a click, Position = average rank." /></h3>
+              <h3>GOOGLE SEARCH CONSOLE <Tip text="Direct data from Google on how joola.com is performing in search. Clicks = people who visited the site, Impressions = how many times the site appeared in results, CTR = % of impressions that led to a click, Position = average rank." /></h3>
               <span className="meta">GSC API v3 · last 28 days vs prior period</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -841,7 +860,7 @@ export default function SeoDashboardClient({
       <div className="section">
         <div className="card card-pad-lg">
           <div className="card-head">
-            <h3>RUN COMPARISON <InfoTip text="How this SEO analysis compares to the previous one. Shows what improved (issues fixed, new keyword rankings) vs what got worse (new issues found, keywords lost). Use this to track progress over time." /></h3>
+            <h3>RUN COMPARISON <Tip text="How this SEO analysis compares to the previous one. Shows what improved (issues fixed, new keyword rankings) vs what got worse (new issues found, keywords lost). Use this to track progress over time." /></h3>
             <span className="meta">gap engine · Supabase · this run vs previous</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>

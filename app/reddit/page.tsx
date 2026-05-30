@@ -28,6 +28,15 @@ export interface RedditMention {
   players_mentioned: string[] | null
   is_crisis: boolean | null
   is_opportunity: boolean | null
+  products_mentioned: string[] | null
+}
+
+export interface PaddleRedditStat {
+  name: string
+  mentions: number
+  upvotes: number
+  positive: number
+  opportunity: number
 }
 
 export default async function RedditPage() {
@@ -43,6 +52,22 @@ export default async function RedditPage() {
   const crisisCount = mentions.filter(m => m.is_crisis).length
   const oppCount = mentions.filter(m => m.is_opportunity).length
   const switchCount = mentions.filter(m => m.competitor_switch).length
+
+  const paddleMap = new Map<string, { mentions: number; upvotes: number; positive: number; opportunity: number }>()
+  for (const m of mentions) {
+    for (const p of m.products_mentioned ?? []) {
+      if (!p?.trim()) continue
+      const entry = paddleMap.get(p) ?? { mentions: 0, upvotes: 0, positive: 0, opportunity: 0 }
+      entry.mentions++
+      entry.upvotes += m.upvotes ?? 0
+      if ((m.sentiment ?? '').toLowerCase().includes('positive')) entry.positive++
+      if (m.is_opportunity) entry.opportunity++
+      paddleMap.set(p, entry)
+    }
+  }
+  const paddleStats: PaddleRedditStat[] = Array.from(paddleMap.entries())
+    .map(([name, s]) => ({ name, ...s }))
+    .sort((a, b) => b.mentions - a.mentions)
 
   const subCounts: Record<string, number> = {}
   for (const m of mentions) {
@@ -61,6 +86,7 @@ export default async function RedditPage() {
       oppCount={oppCount}
       switchCount={switchCount}
       subredditBreakdown={subredditBreakdown}
+      paddleStats={paddleStats}
     />
   )
 }
