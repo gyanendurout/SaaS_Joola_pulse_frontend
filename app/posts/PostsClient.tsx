@@ -189,19 +189,19 @@ export default function PostsClient({
       cm.set(type, { count: c.count + 1, er: c.er + er, views: c.views + views })
     }
     const rows: ThemeRow[] = []
-    for (const [theme, ts] of tMap.entries()) {
+    Array.from(tMap.entries()).forEach(([theme, ts]) => {
       const n = ts.count
       const cells: Record<string, { count: number; avgEr: number; avgViews: number }> = {}
       const cm = cMap.get(theme) ?? new Map<string, CSum>()
-      for (const [type, cs] of cm.entries()) {
+      Array.from(cm.entries()).forEach(([type, cs]) => {
         cells[type] = {
           count:    cs.count,
           avgEr:    cs.count > 0 ? cs.er / cs.count : 0,
           avgViews: cs.count > 0 ? cs.views / cs.count : 0,
         }
-      }
+      })
       rows.push({ theme, count: n, avgEr: n > 0 ? ts.er / n : 0, avgViews: n > 0 ? ts.views / n : 0, avgLikes: n > 0 ? ts.likes / n : 0, cells })
-    }
+    })
     return rows
   }, [athleteFilter, kpiPosts, themeRows])
 
