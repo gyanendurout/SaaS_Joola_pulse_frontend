@@ -174,7 +174,7 @@ export default function PostsClient({
     for (const p of kpiPosts) {
       const theme = p.content_theme
       if (!theme) continue
-      if (!byTheme.has(theme)) byTheme.set(theme, { posts: [], byType: new Map() })
+      if (!byTheme.has(theme)) byTheme.set(theme, { posts: [], byType: new Map<string, EnrichedPost[]>() })
       const entry = byTheme.get(theme)!
       entry.posts.push(p)
       const type = (p.post_type ?? '').toLowerCase()
@@ -184,16 +184,16 @@ export default function PostsClient({
     const rows: ThemeRow[] = []
     for (const [theme, { posts: tp, byType }] of byTheme.entries()) {
       const n = tp.length
-      const avgEr    = n > 0 ? tp.reduce((a, p) => a + (p.engagement_rate ?? 0), 0) / n : 0
-      const avgViews = n > 0 ? tp.reduce((a, p) => a + (p.view_count ?? 0), 0) / n : 0
-      const avgLikes = n > 0 ? tp.reduce((a, p) => a + (p.like_count ?? 0), 0) / n : 0
+      const avgEr    = n > 0 ? tp.reduce<number>((a, p) => a + (p.engagement_rate ?? 0), 0) / n : 0
+      const avgViews = n > 0 ? tp.reduce<number>((a, p) => a + (p.view_count ?? 0), 0) / n : 0
+      const avgLikes = n > 0 ? tp.reduce<number>((a, p) => a + (p.like_count ?? 0), 0) / n : 0
       const cells: Record<string, { count: number; avgEr: number; avgViews: number }> = {}
       for (const [type, typePosts] of byType.entries()) {
         const tn = typePosts.length
         cells[type] = {
           count:    tn,
-          avgEr:    tn > 0 ? typePosts.reduce((a, p) => a + (p.engagement_rate ?? 0), 0) / tn : 0,
-          avgViews: tn > 0 ? typePosts.reduce((a, p) => a + (p.view_count ?? 0), 0) / tn : 0,
+          avgEr:    tn > 0 ? typePosts.reduce<number>((a, p) => a + (p.engagement_rate ?? 0), 0) / tn : 0,
+          avgViews: tn > 0 ? typePosts.reduce<number>((a, p) => a + (p.view_count ?? 0), 0) / tn : 0,
         }
       }
       rows.push({ theme, count: n, avgEr, avgViews, avgLikes, cells })
