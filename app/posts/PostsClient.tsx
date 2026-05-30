@@ -5,6 +5,7 @@ import KpiCard from '@/components/ui/KpiCard'
 import PostingTimeHeatmap from '@/components/PostingTimeHeatmap'
 import ContentCalendar from '@/components/ContentCalendar'
 import { Tip } from '@/components/ui/Tip'
+import { SortableTh } from '@/components/ui/SortableTh'
 import { normalizeAthleteName } from '@/lib/format'
 import type { IgPost, IgPostAnalysis } from '@/lib/types'
 
@@ -63,7 +64,7 @@ const TYPE_PILL: Record<string, string> = {
   carousel: 'pill-info', video: 'pill-cyan',
 }
 
-type SortKey = 'er' | 'views' | 'likes' | 'comments' | 'date' | 'quality' | 'predicted'
+type SortKey = 'er' | 'views' | 'likes' | 'comments' | 'date' | 'quality' | 'predicted' | 'type' | 'theme' | 'vis' | 'hash'
 
 function fmtViews(v: number) {
   if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M'
@@ -111,6 +112,7 @@ export default function PostsClient({
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [athleteFilter, setAthleteFilter] = useState<string>('all')
   const [period, setPeriod] = useState<PeriodKey>('13w')
+  const [postSearch, setPostSearch] = useState('')
 
   // Period-filtered post list for KPI recompute
   const periodPosts = useMemo(() => {
@@ -128,131 +130,101 @@ export default function PostsClient({
     })
   }, [posts, period])
 
-  // KPIs recomputed when period changes; fall back to server-passed KPIs for default 13w
+  // Period + athlete filtered posts for KPI recompute (BUG-05: athlete filter must update KPI cards)
+  const kpiPosts = useMemo(() => {
+    if (athleteFilter === 'all') return periodPosts
+    return periodPosts.filter((p) => {
+      const athletes = Array.isArray(p.athletes_shown)
+        ? p.athletes_shown.map((a) => normalizeAthleteName(a))
+        : []
+      return athletes.includes(athleteFilter)
+    })
+  }, [periodPosts, athleteFilter])
+
+  // KPIs recomputed when period or athlete filter changes
   const periodKpis = useMemo(() => {
-    if (period === '13w') return kpis
-    const n = periodPosts.length
-    const totalViews = periodPosts.reduce((a, p) => a + (p.view_count || 0), 0)
-    const avgER = n > 0 ? periodPosts.reduce((a, p) => a + (p.engagement_rate || 0), 0) / n : 0
-    const weeks = period === '4w' ? 4 : Math.max(1, Math.round((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / (7 * 86400000)))
+    if (period === '13w' && athleteFilter === 'all') return kpis
+    const n = kpiPosts.length
+    const totalViews = kpiPosts.reduce((a, p) => a + (p.view_count || 0), 0)
+    const avgER = n > 0 ? kpiPosts.reduce((a, p) => a + (p.engagement_rate || 0), 0) / n : 0
+    const weeks = period === '4w' ? 4 : period === '13w' ? 13 : Math.max(1, Math.round((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / (7 * 86400000)))
     const avgCadence = +(n / weeks).toFixed(1)
     return { totalPosts: n, totalViews, avgER, avgCadence }
-  }, [period, periodPosts, kpis])
+  }, [period, kpiPosts, kpis, athleteFilter])
 
   // Athletes for dropdown — use the leaderboard rows (already sorted by ER)
   const athleteOptions = useMemo(() => {
     return [...athleteRows].map((a) => a.name).sort((a, b) => a.localeCompare(b))
   }, [athleteRows])
 
-  // All-time posts for the selected athlete — basis for per-athlete analytics
-  const athleteAllPosts = useMemo((): EnrichedPost[] => {
-    if (athleteFilter === 'all') return []
-    return posts.filter((p) => {
-      const athletes = Array.isArray(p.athletes_shown)
-        ? p.athletes_shown.map((a) => normalizeAthleteName(a))
-        : []
-      return athletes.includes(athleteFilter)
-    })
-  }, [posts, athleteFilter])
-
-  // KPIs: athlete-scoped (all-time) when filtered, otherwise period-scoped
-  const displayKpis = useMemo(() => {
-    if (athleteFilter === 'all') return periodKpis
-    const n = athleteAllPosts.length
-    const totalViews = athleteAllPosts.reduce((a, p) => a + (p.view_count || 0), 0)
-    const avgER = n > 0 ? athleteAllPosts.reduce((a, p) => a + (p.engagement_rate || 0), 0) / n : 0
-    return { totalPosts: n, totalViews, avgER, avgCadence: periodKpis.avgCadence }
-  }, [athleteFilter, athleteAllPosts, periodKpis])
-
-  // Content Theme × Format matrix re-derived from athlete posts when filtered
-  const displayThemeRows = useMemo((): ThemeRow[] => {
-    if (athleteFilter === 'all') return themeRows
-    const matrix: Record<string, Record<string, { count: number; er: number; views: number; likes: number }>> = {}
-    for (const p of athleteAllPosts) {
-      const theme = (p.content_theme || 'unknown').toLowerCase()
-      const type = (p.post_type || 'unknown').toLowerCase()
-      if (!matrix[theme]) matrix[theme] = {}
-      if (!matrix[theme][type]) matrix[theme][type] = { count: 0, er: 0, views: 0, likes: 0 }
-      const cell = matrix[theme][type]
-      cell.count++; cell.er += p.engagement_rate || 0; cell.views += p.view_count || 0; cell.likes += p.like_count || 0
-    }
-    return Object.entries(matrix).map(([theme, types]) => {
-      let totalCount = 0, totalEr = 0, totalViews = 0, totalLikes = 0
-      const cells: Record<string, { count: number; avgEr: number; avgViews: number }> = {}
-      for (const [type, c] of Object.entries(types)) {
-        cells[type] = { count: c.count, avgEr: c.count > 0 ? c.er / c.count : 0, avgViews: c.count > 0 ? c.views / c.count : 0 }
-        totalCount += c.count; totalEr += c.er; totalViews += c.views; totalLikes += c.likes
-      }
-      return { theme, count: totalCount, avgEr: totalCount > 0 ? totalEr / totalCount : 0, avgViews: totalCount > 0 ? totalViews / totalCount : 0, avgLikes: totalCount > 0 ? totalLikes / totalCount : 0, cells }
-    }).sort((a, b) => b.count - a.count)
-  }, [athleteFilter, athleteAllPosts, themeRows])
-
-  // Posting Cadence by Theme re-derived from athlete posts when filtered
-  const displayCadenceRows = useMemo((): CadenceRow[] => {
-    if (athleteFilter === 'all') return cadenceRows
-    const themeDayAgg: Record<string, Record<string, { sum: number; count: number }>> = {}
-    for (const p of athleteAllPosts) {
-      const theme = (p.content_theme || 'unknown').toLowerCase()
-      const day = (p.day_of_week || 'unknown').toLowerCase()
-      if (!themeDayAgg[theme]) themeDayAgg[theme] = {}
-      if (!themeDayAgg[theme][day]) themeDayAgg[theme][day] = { sum: 0, count: 0 }
-      themeDayAgg[theme][day].sum += p.engagement_rate || 0
-      themeDayAgg[theme][day].count++
-    }
-    return Object.entries(themeDayAgg)
-      .filter(([theme]) => theme !== 'unknown')
-      .map(([theme, days]) => {
-        let best = { day: '', avgEr: 0, count: 0 }
-        const all: Array<{ day: string; avgEr: number; count: number }> = []
-        for (const [day, v] of Object.entries(days)) {
-          const avgEr = v.count > 0 ? v.sum / v.count : 0
-          all.push({ day, avgEr, count: v.count })
-          if (avgEr > best.avgEr) best = { day, avgEr, count: v.count }
-        }
-        return { theme, best, days: all.sort((a, b) => b.avgEr - a.avgEr) }
-      })
-      .sort((a, b) => b.best.avgEr - a.best.avgEr)
-      .slice(0, 8)
-  }, [athleteFilter, athleteAllPosts, cadenceRows])
-
   // Theme matrix sort
-  type ThemeSortKey = 'count' | 'er' | 'views' | 'likes'
+  type ThemeSortKey = 'theme' | 'count' | 'er' | 'views' | 'likes'
   const [themeSk, setThemeSk] = useState<ThemeSortKey>('count')
   const [themeSd, setThemeSd] = useState<'asc' | 'desc'>('desc')
   function themeSort(k: ThemeSortKey) {
     if (k === themeSk) setThemeSd((d) => (d === 'desc' ? 'asc' : 'desc'))
     else { setThemeSk(k); setThemeSd('desc') }
   }
-  function themeArrow(k: ThemeSortKey) {
-    if (k !== themeSk) return <span className="sort-arrow"> ↕</span>
-    return <span className="sort-arrow active"> {themeSd === 'desc' ? '▼' : '▲'}</span>
-  }
+
+  // When an athlete is selected, recompute the theme×format matrix from
+  // kpiPosts so the table reflects the same data slice as the KPI cards.
+  const filteredThemeRows = useMemo((): ThemeRow[] => {
+    if (athleteFilter === 'all') return themeRows
+    const byTheme = new Map<string, { posts: EnrichedPost[]; byType: Map<string, EnrichedPost[]> }>()
+    for (const p of kpiPosts) {
+      const theme = p.content_theme
+      if (!theme) continue
+      if (!byTheme.has(theme)) byTheme.set(theme, { posts: [], byType: new Map() })
+      const entry = byTheme.get(theme)!
+      entry.posts.push(p)
+      const type = (p.post_type ?? '').toLowerCase()
+      if (!entry.byType.has(type)) entry.byType.set(type, [])
+      entry.byType.get(type)!.push(p)
+    }
+    const rows: ThemeRow[] = []
+    for (const [theme, { posts: tp, byType }] of byTheme.entries()) {
+      const n = tp.length
+      const avgEr    = n > 0 ? tp.reduce((a, p) => a + (p.engagement_rate ?? 0), 0) / n : 0
+      const avgViews = n > 0 ? tp.reduce((a, p) => a + (p.view_count ?? 0), 0) / n : 0
+      const avgLikes = n > 0 ? tp.reduce((a, p) => a + (p.like_count ?? 0), 0) / n : 0
+      const cells: Record<string, { count: number; avgEr: number; avgViews: number }> = {}
+      for (const [type, typePosts] of byType.entries()) {
+        const tn = typePosts.length
+        cells[type] = {
+          count:    tn,
+          avgEr:    tn > 0 ? typePosts.reduce((a, p) => a + (p.engagement_rate ?? 0), 0) / tn : 0,
+          avgViews: tn > 0 ? typePosts.reduce((a, p) => a + (p.view_count ?? 0), 0) / tn : 0,
+        }
+      }
+      rows.push({ theme, count: n, avgEr, avgViews, avgLikes, cells })
+    }
+    return rows
+  }, [athleteFilter, kpiPosts, themeRows])
+
   const sortedThemeRows = useMemo(() => {
     const d = themeSd === 'desc' ? -1 : 1
-    return [...displayThemeRows].sort((a, b) => {
+    return [...filteredThemeRows].sort((a, b) => {
+      if (themeSk === 'theme') return d * a.theme.localeCompare(b.theme)
       if (themeSk === 'count') return d * (a.count - b.count)
       if (themeSk === 'er')    return d * (a.avgEr - b.avgEr)
       if (themeSk === 'views') return d * (a.avgViews - b.avgViews)
       if (themeSk === 'likes') return d * (a.avgLikes - b.avgLikes)
       return 0
     })
-  }, [displayThemeRows, themeSk, themeSd])
+  }, [filteredThemeRows, themeSk, themeSd])
 
   // Athlete table sort
-  type AthleteSortKey = 'count' | 'er' | 'views' | 'likes'
+  type AthleteSortKey = 'name' | 'count' | 'er' | 'views' | 'likes'
   const [athleteSk, setAthleteSk] = useState<AthleteSortKey>('er')
   const [athleteSd, setAthleteSd] = useState<'asc' | 'desc'>('desc')
   function athleteSort(k: AthleteSortKey) {
     if (k === athleteSk) setAthleteSd((d) => (d === 'desc' ? 'asc' : 'desc'))
     else { setAthleteSk(k); setAthleteSd('desc') }
   }
-  function athleteArrow(k: AthleteSortKey) {
-    if (k !== athleteSk) return <span className="sort-arrow"> ↕</span>
-    return <span className="sort-arrow active"> {athleteSd === 'desc' ? '▼' : '▲'}</span>
-  }
   const sortedAthleteRows = useMemo(() => {
     const d = athleteSd === 'desc' ? -1 : 1
     return [...athleteRows].sort((a, b) => {
+      if (athleteSk === 'name')  return d * a.name.localeCompare(b.name)
       if (athleteSk === 'count') return d * (a.count - b.count)
       if (athleteSk === 'er')    return d * (a.avgEr - b.avgEr)
       if (athleteSk === 'views') return d * (a.avgViews - b.avgViews)
@@ -262,40 +234,41 @@ export default function PostsClient({
   }, [athleteRows, athleteSk, athleteSd])
 
   // Cadence table sort
-  type CadenceSortKey = 'theme' | 'er'
+  type CadenceSortKey = 'theme' | 'day' | 'er'
   const [cadenceSk, setCadenceSk] = useState<CadenceSortKey>('er')
   const [cadenceSd, setCadenceSd] = useState<'asc' | 'desc'>('desc')
   function cadenceSort(k: CadenceSortKey) {
     if (k === cadenceSk) setCadenceSd((d) => (d === 'desc' ? 'asc' : 'desc'))
     else { setCadenceSk(k); setCadenceSd('desc') }
   }
-  function cadenceArrow(k: CadenceSortKey) {
-    if (k !== cadenceSk) return <span className="sort-arrow"> ↕</span>
-    return <span className="sort-arrow active"> {cadenceSd === 'desc' ? '▼' : '▲'}</span>
-  }
   const sortedCadenceRows = useMemo(() => {
     const d = cadenceSd === 'desc' ? -1 : 1
-    return [...displayCadenceRows].sort((a, b) => {
+    return [...cadenceRows].sort((a, b) => {
       if (cadenceSk === 'theme') return d * a.theme.localeCompare(b.theme)
+      if (cadenceSk === 'day')   return d * a.best.day.localeCompare(b.best.day)
       if (cadenceSk === 'er')    return d * (a.best.avgEr - b.best.avgEr)
       return 0
     })
-  }, [displayCadenceRows, cadenceSk, cadenceSd])
+  }, [cadenceRows, cadenceSk, cadenceSd])
 
   const types = ['All', ...postTypes.map((t) => t.charAt(0).toUpperCase() + t.slice(1))]
 
   const filtered = useMemo(() => {
-    // When an athlete is selected, search across ALL posts regardless of period
-    // so the user always sees results. The period selector only affects KPIs.
-    // When "all athletes" is selected, respect the period filter as usual.
-    const source = athleteFilter !== 'all' ? posts : periodPosts
-    const base = source.filter((p) => {
+    const q = postSearch.trim().toLowerCase()
+    const base = periodPosts.filter((p) => {
       if (typeFilter !== 'All' && (p.post_type ?? '').toLowerCase() !== typeFilter.toLowerCase()) return false
       if (athleteFilter !== 'all') {
+        // Normalize both sides of the comparison so "benjohns" in the post row
+        // matches the canonical "Ben Johns" stored in athleteFilter.
         const athletes = Array.isArray(p.athletes_shown)
           ? p.athletes_shown.map((a) => normalizeAthleteName(a))
           : []
         if (!athletes.includes(athleteFilter)) return false
+      }
+      if (q) {
+        const caption = (p.caption ?? '').toLowerCase()
+        const postId = (p.post_id ?? '').toLowerCase()
+        if (!caption.includes(q) && !postId.includes(q)) return false
       }
       return true
     })
@@ -308,15 +281,18 @@ export default function PostsClient({
       if (sortKey === 'date')     return d * (new Date(a.posted_at ?? 0).getTime() - new Date(b.posted_at ?? 0).getTime())
       if (sortKey === 'quality')  return d * ((a.caption_quality_score ?? 0) - (b.caption_quality_score ?? 0))
       if (sortKey === 'predicted') return d * ((PREDICT_RANK[(a.predicted_performance || '').toLowerCase()] || 0) - (PREDICT_RANK[(b.predicted_performance || '').toLowerCase()] || 0))
+      if (sortKey === 'type')  return d * (a.post_type ?? '').localeCompare(b.post_type ?? '')
+      if (sortKey === 'theme') return d * (a.content_theme ?? '').localeCompare(b.content_theme ?? '')
+      if (sortKey === 'vis')   return d * ((a.visual_quality_score ?? 0) - (b.visual_quality_score ?? 0))
+      if (sortKey === 'hash')  return d * ((a.hashtag_relevance_score ?? 0) - (b.hashtag_relevance_score ?? 0))
       return 0
     })
-  }, [periodPosts, typeFilter, athleteFilter, sortKey, sortDir])
+  }, [periodPosts, typeFilter, athleteFilter, postSearch, sortKey, sortDir])
 
   function sort(k: SortKey) {
     if (k === sortKey) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
     else { setSortKey(k); setSortDir('desc') }
   }
-  function sortArrow(k: SortKey) { return sortKey === k ? (sortDir === 'desc' ? ' ▼' : ' ▲') : '' }
 
   return (
     <div>
@@ -347,21 +323,21 @@ export default function PostsClient({
       {/* KPIs */}
       <div className="section">
         <div className="kpi-grid">
-          <KpiCard variant="joola" label="POSTS PUBLISHED" src={athleteFilter !== 'all' ? `${athleteFilter} · all time` : periodRange(period)}
+          <KpiCard variant="joola" label="POSTS PUBLISHED" src={periodRange(period)}
             tooltip="How many posts JOOLA published in the selected period"
-            value={displayKpis.totalPosts} trend={trends.posts}
-            delta={'▲ +' + Math.max(1, Math.round(displayKpis.totalPosts * 0.07)) + ' (7.0%)'} dir="up" />
+            value={periodKpis.totalPosts} trend={trends.posts}
+            delta={'▲ +' + Math.max(1, Math.round(periodKpis.totalPosts * 0.07)) + ' (7.0%)'} dir="up" />
           <KpiCard label="AVG ENGAGEMENT RATE" src="(likes + comments) ÷ reach"
             tooltip="Engagement Rate = (likes + comments) ÷ people who saw the post. Example: a post seen by 10,000 people that got 600 likes + 50 comments = 650 ÷ 10,000 = 6.5%. Benchmarks: above 6% is excellent, 3–6% is healthy, below 3% needs attention."
-            value={+(displayKpis.avgER * 100).toFixed(2)} unit="%"
+            value={+(periodKpis.avgER * 100).toFixed(2)} unit="%"
             trend={trends.er} delta="▼ -2.4%" dir="down" />
-          <KpiCard label="TOTAL VIEWS" src={athleteFilter !== 'all' ? `${athleteFilter} · all time` : `reels + video · ${periodRange(period)}`}
+          <KpiCard label="TOTAL VIEWS" src={`reels + video · ${periodRange(period)}`}
             tooltip="Combined view count across all Reels and video posts in the selected period"
-            value={displayKpis.totalViews} trend={trends.views}
+            value={periodKpis.totalViews} trend={trends.views}
             delta="▲ +18.4%" dir="up" />
           <KpiCard label="AVG POST CADENCE" src="posts / week"
             tooltip="Average number of posts per week — consistency drives algorithm reach"
-            value={displayKpis.avgCadence} trend={trends.posts}
+            value={periodKpis.avgCadence} trend={trends.posts}
             delta="▲ +0.8" dir="up" />
         </div>
       </div>
@@ -373,15 +349,15 @@ export default function PostsClient({
             <h3>CONTENT THEME × FORMAT — AVG ENGAGEMENT<Tip text="Which content topics perform best in each format (Reel, Photo, Carousel). Click column headers to sort and find your best-performing combinations." /></h3>
             <span className="meta">{periodRange(period)} · click headers to sort</span>
           </div>
-          <div className="table-wrap scroll" style={{ maxHeight: 400 }}>
+          <div className="table-wrap scroll">
             <table className="data">
               <thead>
                 <tr>
-                  <th>THEME</th>
-                  <th className="num sortable" onClick={() => themeSort('count')}>POSTS{themeArrow('count')}</th>
-                  <th className="num sortable" onClick={() => themeSort('er')}>AVG ER{themeArrow('er')}</th>
-                  <th className="num sortable" onClick={() => themeSort('views')}>AVG VIEWS{themeArrow('views')}</th>
-                  <th className="num sortable" onClick={() => themeSort('likes')}>AVG LIKES{themeArrow('likes')}</th>
+                  <SortableTh active={themeSk === 'theme'} direction={themeSd} onClick={() => themeSort('theme')} title="Content theme name — sort alphabetically">THEME</SortableTh>
+                  <SortableTh num active={themeSk === 'count'} direction={themeSd} onClick={() => themeSort('count')} title="Number of posts with this content theme">POSTS</SortableTh>
+                  <SortableTh num active={themeSk === 'er'} direction={themeSd} onClick={() => themeSort('er')} title="Average engagement rate across all posts with this theme">AVG ER</SortableTh>
+                  <SortableTh num active={themeSk === 'views'} direction={themeSd} onClick={() => themeSort('views')} title="Average view count across all posts with this theme">AVG VIEWS</SortableTh>
+                  <SortableTh num active={themeSk === 'likes'} direction={themeSd} onClick={() => themeSort('likes')} title="Average like count across all posts with this theme">AVG LIKES</SortableTh>
                   {postTypes.map((t) => (
                     <th className="num" key={t} style={{ textTransform: 'capitalize' }}>{t}</th>
                   ))}
@@ -431,7 +407,11 @@ export default function PostsClient({
                 ))}
               </tbody>
             </table>
-            {displayThemeRows.length === 0 && <div className="empty">No themed posts yet. Run AI post analysis to populate.</div>}
+            {filteredThemeRows.length === 0 && (
+              <div className="empty">
+                {athleteFilter === 'all' ? 'No themed posts yet. Run AI post analysis to populate.' : 'No themed posts for this athlete in the selected period.'}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -445,15 +425,15 @@ export default function PostsClient({
                 <h3>TOP ATHLETES BY ENGAGEMENT<Tip text="Which JOOLA athletes drive the most engagement when featured in posts — helps decide who to feature more often." /></h3>
                 <span className="meta">avg ER · athlete posts · {periodRange(period)}</span>
               </div>
-              <div className="table-wrap">
+              <div className="table-wrap scroll">
                 <table className="data">
                   <thead>
                     <tr>
-                      <th>ATHLETE</th>
-                      <th className="num sortable" onClick={() => athleteSort('count')}>POSTS{athleteArrow('count')}</th>
-                      <th className="num sortable" onClick={() => athleteSort('er')}>AVG ER{athleteArrow('er')}</th>
-                      <th className="num sortable" onClick={() => athleteSort('views')}>AVG VIEWS{athleteArrow('views')}</th>
-                      <th className="num sortable" onClick={() => athleteSort('likes')}>AVG LIKES{athleteArrow('likes')}</th>
+                      <SortableTh active={athleteSk === 'name'} direction={athleteSd} onClick={() => athleteSort('name')} title="Athlete name — sort alphabetically">ATHLETE</SortableTh>
+                      <SortableTh num active={athleteSk === 'count'} direction={athleteSd} onClick={() => athleteSort('count')} title="Number of posts featuring this athlete">POSTS</SortableTh>
+                      <SortableTh num active={athleteSk === 'er'} direction={athleteSd} onClick={() => athleteSort('er')} title="Average engagement rate on posts featuring this athlete">AVG ER</SortableTh>
+                      <SortableTh num active={athleteSk === 'views'} direction={athleteSd} onClick={() => athleteSort('views')} title="Average view count on posts featuring this athlete">AVG VIEWS</SortableTh>
+                      <SortableTh num active={athleteSk === 'likes'} direction={athleteSd} onClick={() => athleteSort('likes')} title="Average like count on posts featuring this athlete">AVG LIKES</SortableTh>
                     </tr>
                   </thead>
                   <tbody>
@@ -482,14 +462,14 @@ export default function PostsClient({
                 <h3>POSTING CADENCE BY THEME<Tip text="Best day of the week to post each content type for maximum engagement — the yellow bar shows the winning day. Plan your content calendar around these windows." /></h3>
                 <span className="meta">best day to post · avg ER · {periodRange(period)}</span>
               </div>
-              <div className="table-wrap scroll" style={{ maxHeight: 400 }}>
+              <div className="table-wrap scroll">
                 <table className="data">
                   <thead>
                     <tr>
-                      <th className="sortable" onClick={() => cadenceSort('theme')}>THEME{cadenceArrow('theme')}</th>
-                      <th>BEST DAY</th>
-                      <th className="num sortable" onClick={() => cadenceSort('er')}>BEST ER{cadenceArrow('er')}</th>
-                      <th>RANKING</th>
+                      <SortableTh active={cadenceSk === 'theme'} direction={cadenceSd} onClick={() => cadenceSort('theme')} title="Content theme name — sort alphabetically">THEME</SortableTh>
+                      <SortableTh active={cadenceSk === 'day'} direction={cadenceSd} onClick={() => cadenceSort('day')} title="Best day of the week to post this theme for maximum engagement — sort alphabetically">BEST DAY</SortableTh>
+                      <SortableTh num active={cadenceSk === 'er'} direction={cadenceSd} onClick={() => cadenceSort('er')} title="Average engagement rate achieved on the best posting day for this theme">BEST ER</SortableTh>
+                      <th title="Relative engagement rate by day of week — yellow bar marks the best day">RANKING</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -527,7 +507,7 @@ export default function PostsClient({
                     })}
                   </tbody>
                 </table>
-                {displayCadenceRows.length === 0 && <div className="empty">Not enough themed posts yet.</div>}
+                {cadenceRows.length === 0 && <div className="empty">Not enough themed posts yet.</div>}
               </div>
             </div>
           </div>
@@ -652,29 +632,38 @@ export default function PostsClient({
         <div className="card card-pad-lg">
           <div className="card-head">
             <h3>ALL POSTS<Tip text="Every post sorted and filterable. Click any column header to sort ascending or descending. CAPT=caption quality, VIS=visual quality, HASH=hashtag relevance, PRED=predicted performance." /></h3>
-            <div className="chip-row" style={{ alignItems: 'center' }}>
-              {types.map((t) => (
-                <button key={t} className={'chip ' + (typeFilter === t ? 'on' : '')} onClick={() => setTypeFilter(t)}>{t}</button>
-              ))}
-              <span className="mono" style={{ marginLeft: 8, fontSize: 11, color: 'var(--fg-4)' }}>{filtered.length} posts</span>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                className="fld"
+                placeholder="Search caption or post ID…"
+                value={postSearch}
+                onChange={(e) => setPostSearch(e.target.value)}
+                style={{ minWidth: 180 }}
+              />
+              <div className="chip-row" style={{ alignItems: 'center' }}>
+                {types.map((t) => (
+                  <button key={t} className={'chip ' + (typeFilter === t ? 'on' : '')} onClick={() => setTypeFilter(t)}>{t}</button>
+                ))}
+                <span className="mono" style={{ marginLeft: 8, fontSize: 11, color: 'var(--fg-4)' }}>{filtered.length} posts</span>
+              </div>
             </div>
           </div>
           <div className="table-wrap scroll">
-            <table className="data">
+            <table className="data" style={{ minWidth: 1020 }}>
               <thead>
                 <tr>
-                  <th>POST</th>
-                  <th>TYPE</th>
-                  <th>THEME</th>
-                  <th className="num sortable" onClick={() => sort('er')}>ER{sortArrow('er')}</th>
-                  <th className="num sortable" onClick={() => sort('views')}>VIEWS{sortArrow('views')}</th>
-                  <th className="num sortable" onClick={() => sort('likes')}>LIKES{sortArrow('likes')}</th>
-                  <th className="num sortable" onClick={() => sort('comments')}>COMMENTS{sortArrow('comments')}</th>
-                  <th className="num sortable" onClick={() => sort('quality')}>CAPT{sortArrow('quality')}</th>
-                  <th className="num">VIS</th>
-                  <th className="num">HASH</th>
-                  <th className="num sortable" onClick={() => sort('predicted')}>PRED{sortArrow('predicted')}</th>
-                  <th className="num sortable" onClick={() => sort('date')}>POSTED{sortArrow('date')}</th>
+                  <th title="Caption preview and post ID">POST</th>
+                  <SortableTh active={sortKey === 'type'} direction={sortDir} onClick={() => sort('type')} title="Post format — Reel, Photo, Carousel, etc. Sort to group by type.">TYPE</SortableTh>
+                  <SortableTh active={sortKey === 'theme'} direction={sortDir} onClick={() => sort('theme')} title="AI-assigned content theme — sort alphabetically to group similar content.">THEME</SortableTh>
+                  <SortableTh num active={sortKey === 'er'} direction={sortDir} onClick={() => sort('er')} title="Engagement Rate = (likes + comments) ÷ reach">ER %</SortableTh>
+                  <SortableTh num active={sortKey === 'views'} direction={sortDir} onClick={() => sort('views')} title="Total view count for this post">VIEWS</SortableTh>
+                  <SortableTh num active={sortKey === 'likes'} direction={sortDir} onClick={() => sort('likes')} title="Total likes received">LIKES</SortableTh>
+                  <SortableTh num active={sortKey === 'comments'} direction={sortDir} onClick={() => sort('comments')} title="Total comments received">COMMENTS</SortableTh>
+                  <SortableTh num active={sortKey === 'quality'} direction={sortDir} onClick={() => sort('quality')} title="AI caption quality score (0–10)">CAPT</SortableTh>
+                  <SortableTh num active={sortKey === 'vis'} direction={sortDir} onClick={() => sort('vis')} title="AI visual quality score (0–10) — sort descending to find best-looking posts">VIS</SortableTh>
+                  <SortableTh num active={sortKey === 'hash'} direction={sortDir} onClick={() => sort('hash')} title="AI hashtag relevance score (0–10) — sort descending to find best-hashtagged posts">HASH</SortableTh>
+                  <SortableTh num active={sortKey === 'predicted'} direction={sortDir} onClick={() => sort('predicted')} title="AI-predicted performance tier — High / Mid / Low">PRED</SortableTh>
+                  <SortableTh num active={sortKey === 'date'} direction={sortDir} onClick={() => sort('date')} title="Date the post was published">POSTED</SortableTh>
                   <th></th>
                 </tr>
               </thead>

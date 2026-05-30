@@ -211,6 +211,12 @@ export default async function WeeklyDigestPage() {
     .slice(0, 5)
     .map(([name, count]) => ({ name, count }))
 
+  // Ensure history[0] reflects the backfilled `current` so the client's
+  // sortedByDate[0] === viewSnap (at viewIdx=0) has the correct ER value.
+  // Without this, history[0] kept the raw DB row (avg_engagement_rate=0)
+  // while `current` had the backfilled value, causing 0.00% ER on the KPI card.
+  const snapsForHistory = current != null ? [current, ...snaps.slice(1)] : snaps
+
   return (
     <WeeklyDigestClient
       current={current ?? null}
@@ -221,7 +227,7 @@ export default async function WeeklyDigestPage() {
       wishlist={wishArr}
       superFans={superArr}
       competitorBreakdown={competitorBreakdown}
-      history={snaps}
+      history={snapsForHistory}
     />
   )
 }

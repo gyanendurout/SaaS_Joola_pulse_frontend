@@ -353,7 +353,10 @@ export default function TextComposerClient({
         <section className="card card-pad-lg composer-zone composer-zone-center">
           <div className="card-head" style={{ marginBottom: 10 }}>
             <h3>COMPOSER</h3>
-            <span className="meta">Format · tone · length · audience · CTA</span>
+            <span className="meta" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              Settings
+              <Tip text="Format · tone · length · audience · CTA" />
+            </span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
