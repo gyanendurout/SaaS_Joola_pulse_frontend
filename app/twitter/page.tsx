@@ -41,6 +41,25 @@ export interface XPost {
   enriched_at: string | null
 }
 
+export interface XReply {
+  id: string
+  tweet_reply_id: string
+  post_id: string
+  brand_id: string
+  replier_username: string | null
+  reply_text: string | null
+  reply_likes: number | null
+  retweet_count: number | null
+  is_brand_reply: boolean
+  posted_at: string | null
+  scraped_at: string
+  sentiment_label: string | null
+  sentiment_score: number | null
+  topics: string[] | null
+  is_crisis: boolean | null
+  is_opportunity: boolean | null
+}
+
 const num = (v: number | string | null | undefined): number => {
   if (v == null) return 0
   if (typeof v === 'number') return v
@@ -49,17 +68,23 @@ const num = (v: number | string | null | undefined): number => {
 }
 
 export default async function TwitterPage() {
-  const [accountRes, postsRes] = await Promise.all([
+  const [accountRes, postsRes, repliesRes] = await Promise.all([
     supabase.from('x_accounts').select('*').eq('brand_id', JOOLA).maybeSingle(),
     supabase
       .from('x_posts')
       .select('*')
       .eq('brand_id', JOOLA)
       .order('view_count', { ascending: false }),
+    supabase
+      .from('x_replies')
+      .select('id,tweet_reply_id,post_id,brand_id,replier_username,reply_text,reply_likes,retweet_count,is_brand_reply,posted_at,scraped_at,sentiment_label,sentiment_score,topics,is_crisis,is_opportunity')
+      .eq('brand_id', JOOLA)
+      .order('reply_likes', { ascending: false }),
   ])
 
   const account = (accountRes.data ?? null) as XAccount | null
   const posts = (postsRes.data ?? []) as XPost[]
+  const replies = (repliesRes.data ?? []) as XReply[]
 
   const totalLikes = posts.reduce((s, p) => s + num(p.like_count), 0)
   const totalRT = posts.reduce((s, p) => s + num(p.retweet_count), 0)
@@ -73,6 +98,7 @@ export default async function TwitterPage() {
     <TwitterClient
       account={account}
       posts={posts}
+      replies={replies}
       totalLikes={totalLikes}
       totalRT={totalRT}
       totalReplies={totalReplies}

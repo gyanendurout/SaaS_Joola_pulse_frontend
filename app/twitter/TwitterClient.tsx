@@ -4,11 +4,12 @@ import { useState, useMemo } from 'react'
 import { SortableTh, ExtLink } from '@/components/ui/SortableTh'
 import { Tip } from '@/components/ui/Tip'
 import { formatEnum } from '@/lib/format'
-import type { XAccount, XPost } from './page'
+import type { XAccount, XPost, XReply } from './page'
 
 interface Props {
   account: XAccount | null
   posts: XPost[]
+  replies: XReply[]
   totalLikes: number
   totalRT: number
   totalReplies: number
@@ -16,6 +17,14 @@ interface Props {
   enrichedCount: number
   crisisCount: number
   opportunityCount: number
+}
+
+function sentimentStyle(label: string | null): React.CSSProperties {
+  if (!label) return { color: 'var(--fg-4)' }
+  const l = label.toLowerCase()
+  if (l.includes('positive')) return { color: 'var(--joola)' }
+  if (l.includes('negative')) return { color: '#f87171' }
+  return { color: 'var(--fg-3)' }
 }
 
 function num(v: number | string | null | undefined): number {
@@ -41,17 +50,68 @@ function fmtDate(s: string | null | undefined): string {
 }
 
 type SortKey = 'text' | 'type' | 'impressions' | 'likes' | 'rt' | 'replies' | 'sentiment' | 'date'
+type ReplySortKey = 'likes' | 'date' | 'replier' | 'post'
 
-export default function TwitterClient({ account, posts, totalLikes, totalRT, totalReplies, totalImpressions, enrichedCount, crisisCount, opportunityCount }: Props) {
+export default function TwitterClient({ account, posts, replies, totalLikes, totalRT, totalReplies, totalImpressions, enrichedCount, crisisCount, opportunityCount }: Props) {
+  const [tab, setTab] = useState<'posts' | 'replies'>('posts')
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('impressions')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [filterType, setFilterType] = useState<'all' | 'rt' | 'original'>('all')
 
+  const [replySearch, setReplySearch] = useState('')
+  const [replyPostId, setReplyPostId] = useState<string>('all')
+  const [replySortKey, setReplySortKey] = useState<ReplySortKey>('likes')
+  const [replySortDir, setReplySortDir] = useState<'asc' | 'desc'>('desc')
+
   const setSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortKey(key); setSortDir('desc') }
   }
+  const setReplySort = (key: ReplySortKey) => {
+    if (replySortKey === key) setReplySortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setReplySortKey(key); setReplySortDir('desc') }
+  }
+
+  // reply tab
+  const postById = useMemo(() => {
+    const m: Record<string, XPost> = {}
+    for (const p of posts) m[p.id] = p
+    return m
+  }, [posts])
+
+  const postsWithReplies = useMemo(() => {
+    const ids = new Set(replies.map(r => r.post_id))
+    return posts.filter(p => ids.has(p.id))
+  }, [posts, replies])
+
+  const filteredReplies = useMemo(() => {
+    let list = replies
+    if (replyPostId !== 'all') list = list.filter(r => r.post_id === replyPostId)
+    if (replySearch.trim()) {
+      const q = replySearch.toLowerCase()
+      list = list.filter(r =>
+        r.reply_text?.toLowerCase().includes(q) ||
+        r.replier_username?.toLowerCase().includes(q) ||
+        postById[r.post_id]?.text?.toLowerCase().includes(q)
+      )
+    }
+    const m = replySortDir === 'asc' ? 1 : -1
+    return [...list].sort((a, b) => {
+      switch (replySortKey) {
+        case 'likes': return ((a.reply_likes ?? 0) - (b.reply_likes ?? 0)) * m
+        case 'date': return ((a.posted_at ?? a.scraped_at).localeCompare(b.posted_at ?? b.scraped_at)) * m
+        case 'replier': return ((a.replier_username ?? '').localeCompare(b.replier_username ?? '')) * m
+        case 'post': return ((postById[a.post_id]?.text ?? '').localeCompare(postById[b.post_id]?.text ?? '')) * m
+      }
+    })
+  }, [replies, replyPostId, replySearch, replySortKey, replySortDir, postById])
+
+  const uniqueRepliers = useMemo(() => new Set(replies.map(r => r.replier_username).filter(Boolean)).size, [replies])
+  const topReply = replies[0] ?? null
+  const avgReplyLikes = replies.length > 0
+    ? (replies.reduce((s, r) => s + (r.reply_likes ?? 0), 0) / replies.length)
+    : 0
 
   const aiPending = enrichedCount === 0
   const rtCount = posts.filter(p => p.text?.startsWith('RT @')).length
@@ -202,6 +262,166 @@ export default function TwitterClient({ account, posts, totalLikes, totalRT, tot
         </div>
       )}
 
+      <div className="tabs" style={{ marginBottom: 20, alignItems: 'center', display: 'flex' }}>
+        <button className={'tab' + (tab === 'posts' ? ' on' : '')} onClick={() => setTab('posts')}>
+          Posts ({posts.length})
+        </button>
+        <button className={'tab' + (tab === 'replies' ? ' on' : '')} onClick={() => setTab('replies')}>
+          Replies ({replies.length})
+        </button>
+      </div>
+
+      {/* ── REPLIES TAB ── */}
+      {tab === 'replies' && (
+        <div>
+          <div className="kpi-grid" style={{ marginBottom: 20 }}>
+            <div className="kpi joola">
+              <div className="label">Total Replies</div>
+              <div className="value">{replies.length}</div>
+              <div className="delta" style={{ color: replies.length > 0 ? 'var(--joola)' : 'var(--fg-4)' }}>
+                {replies.length > 0 ? `from ${postsWithReplies.length} posts` : 'not yet scraped'}
+              </div>
+            </div>
+            <div className="kpi">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Unique Repliers
+                <Tip text="Number of distinct X/Twitter accounts that replied to JOOLA posts." />
+              </div>
+              <div className="value">{uniqueRepliers}</div>
+              <div className="delta" style={{ color: 'var(--fg-3)' }}>distinct accounts</div>
+            </div>
+            <div className="kpi">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Avg Likes / Reply
+                <Tip text="Average likes received per reply." />
+              </div>
+              <div className="value">{avgReplyLikes.toFixed(1)}</div>
+              <div className="delta" style={{ color: 'var(--fg-3)' }}>per reply</div>
+            </div>
+            <div className="kpi warn">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Top Reply Likes
+                <Tip text="The most-liked reply on any JOOLA post." />
+              </div>
+              <div className="value">{topReply ? fmt(topReply.reply_likes) : '—'}</div>
+              <div className="delta up">likes</div>
+            </div>
+          </div>
+
+          {replies.length === 0 ? (
+            <div className="card card-pad-lg">
+              <div className="empty">
+                No replies scraped yet — JOOLA's X posts are primarily retweets which don't collect replies,
+                or run <code>scrape_x_replies.py</code> to populate.
+              </div>
+            </div>
+          ) : (
+            <div className="card card-pad-lg">
+              <div className="card-head" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <select
+                  className="fld"
+                  value={replyPostId}
+                  onChange={e => setReplyPostId(e.target.value)}
+                  style={{ minWidth: 220, maxWidth: 360 }}
+                >
+                  <option value="all">All posts ({replies.length})</option>
+                  {postsWithReplies.map(p => {
+                    const count = replies.filter(r => r.post_id === p.id).length
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {(p.text ?? '(no text)').slice(0, 50)}{(p.text?.length ?? 0) > 50 ? '…' : ''} ({count})
+                      </option>
+                    )
+                  })}
+                </select>
+                <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-4)' }}>
+                  {filteredReplies.length} repl{filteredReplies.length !== 1 ? 'ies' : 'y'} · click column to sort
+                </div>
+              </div>
+
+              <input
+                className="fld"
+                placeholder="Search replies, usernames, or post text…"
+                value={replySearch}
+                onChange={e => setReplySearch(e.target.value)}
+                style={{ width: '100%', marginBottom: 16, boxSizing: 'border-box' }}
+              />
+
+              {filteredReplies.length === 0 ? (
+                <div className="empty">No replies match your filters.</div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="data" style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <SortableTh active={replySortKey === 'replier'} direction={replySortDir} onClick={() => setReplySort('replier')} style={{ width: 140 }} title="X/Twitter username of the replier">Replier</SortableTh>
+                        <th title="The reply text">Reply</th>
+                        <SortableTh active={replySortKey === 'post'} direction={replySortDir} onClick={() => setReplySort('post')} style={{ width: 200 }} title="Which JOOLA post this is a reply to">Post</SortableTh>
+                        <SortableTh active={replySortKey === 'likes'} direction={replySortDir} onClick={() => setReplySort('likes')} num style={{ width: 72 }} title="Likes received on this reply">Likes</SortableTh>
+                        <SortableTh active={replySortKey === 'date'} direction={replySortDir} onClick={() => setReplySort('date')} num style={{ width: 110 }} title="When the reply was posted">Posted</SortableTh>
+                        <th style={{ width: 40 }} aria-label="Open"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredReplies.map(r => {
+                        const post = postById[r.post_id]
+                        return (
+                          <tr key={r.id} style={r.is_brand_reply ? { background: 'color-mix(in srgb, var(--joola) 6%, transparent)' } : undefined}>
+                            <td style={{ verticalAlign: 'top', paddingTop: 10 }}>
+                              <div style={{ fontWeight: 600, fontSize: 12 }}>{r.replier_username || '—'}</div>
+                              {r.is_brand_reply && (
+                                <span className="pill-joola" style={{ fontSize: 9, marginTop: 3, display: 'inline-block' }}>JOOLA REPLY</span>
+                              )}
+                            </td>
+                            <td style={{ maxWidth: 380, verticalAlign: 'top', paddingTop: 10 }}>
+                              <div style={{ fontSize: 13, lineHeight: '1.5', color: 'var(--fg-1)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                {r.reply_text || '—'}
+                              </div>
+                              {r.sentiment_label && (
+                                <div style={{ marginTop: 4, ...sentimentStyle(r.sentiment_label), fontSize: 11 }}>
+                                  {r.sentiment_label.replace(/_/g, ' ')}
+                                  {r.sentiment_score != null && ` · ${(r.sentiment_score * 100).toFixed(0)}%`}
+                                </div>
+                              )}
+                              {r.topics && r.topics.length > 0 && (
+                                <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                  {r.topics.map(t => (
+                                    <span key={t} className="chip" style={{ fontSize: 10, padding: '1px 6px' }}>{t}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ verticalAlign: 'top', paddingTop: 10 }}>
+                              {post ? (
+                                <a href={post.post_url} target="_blank" rel="noreferrer" className="tlink"
+                                  style={{ fontSize: 12, lineHeight: '1.4' }}>
+                                  {(post.text ?? '(no text)').slice(0, 55)}{(post.text?.length ?? 0) > 55 ? '…' : ''}
+                                </a>
+                              ) : <span style={{ color: 'var(--fg-4)', fontSize: 12 }}>—</span>}
+                            </td>
+                            <td className="cell-num" style={{ verticalAlign: 'top', paddingTop: 10, fontWeight: (r.reply_likes ?? 0) > 0 ? 600 : 400 }}>
+                              {fmt(r.reply_likes)}
+                            </td>
+                            <td className="cell-num" style={{ verticalAlign: 'top', paddingTop: 10, color: 'var(--fg-4)', fontSize: 12 }}>
+                              {fmtDate(r.posted_at)}
+                            </td>
+                            <td style={{ verticalAlign: 'top', paddingTop: 8 }}>
+                              <ExtLink href={post?.post_url ?? '#'} label="Open post on X" />
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── POSTS TAB ── */}
+      {tab === 'posts' && (
       <div className="card card-pad-lg">
         <div className="card-head" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
           <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center' }}>
@@ -293,6 +513,7 @@ export default function TwitterClient({ account, posts, totalLikes, totalRT, tot
           </div>
         )}
       </div>
+      )} {/* end posts tab */}
     </div>
   )
 }

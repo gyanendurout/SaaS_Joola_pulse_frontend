@@ -4,11 +4,12 @@ import { useState, useMemo } from 'react'
 import { SortableTh, ExtLink } from '@/components/ui/SortableTh'
 import { Tip } from '@/components/ui/Tip'
 import { formatEnum } from '@/lib/format'
-import type { TikTokAccount, TikTokVideo } from './page'
+import type { TikTokAccount, TikTokVideo, TikTokComment, PaddleBuzz } from './page'
 
 interface Props {
   account: TikTokAccount | null
   videos: TikTokVideo[]
+  comments: TikTokComment[]
   totalViews: number
   totalLikes: number
   totalComments: number
@@ -17,6 +18,7 @@ interface Props {
   enrichedCount: number
   crisisCount: number
   opportunityCount: number
+  paddleStats: PaddleBuzz[]
 }
 
 function num(v: number | string | null | undefined): number {
@@ -50,17 +52,76 @@ function fmtDuration(secs: number | string | null): string {
 }
 
 type SortKey = 'caption' | 'views' | 'likes' | 'shares' | 'comments' | 'duration' | 'engagement' | 'sentiment' | 'date'
+type CommentSortKey = 'likes' | 'date' | 'commenter' | 'video'
 
-export default function TikTokClient({ account, videos, totalViews, totalLikes, totalComments, totalShares, topViews, enrichedCount, crisisCount, opportunityCount }: Props) {
+function sentimentStyle(label: string | null): React.CSSProperties {
+  if (!label) return { color: 'var(--fg-4)' }
+  const l = label.toLowerCase()
+  if (l.includes('positive')) return { color: 'var(--joola)' }
+  if (l.includes('negative')) return { color: '#f87171' }
+  return { color: 'var(--fg-3)' }
+}
+
+export default function TikTokClient({ account, videos, comments, totalViews, totalLikes, totalComments, totalShares, topViews, enrichedCount, crisisCount, opportunityCount, paddleStats }: Props) {
+  const [tab, setTab] = useState<'videos' | 'comments'>('videos')
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('views')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [filterFlag, setFilterFlag] = useState<'all' | 'crisis' | 'opportunity'>('all')
 
+  const [commentSearch, setCommentSearch] = useState('')
+  const [commentVideoId, setCommentVideoId] = useState<string>('all')
+  const [commentSortKey, setCommentSortKey] = useState<CommentSortKey>('likes')
+  const [commentSortDir, setCommentSortDir] = useState<'asc' | 'desc'>('desc')
+
   const setSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortKey(key); setSortDir('desc') }
   }
+  const setCommentSort = (key: CommentSortKey) => {
+    if (commentSortKey === key) setCommentSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setCommentSortKey(key); setCommentSortDir('desc') }
+  }
+
+  // video lookup for comments tab
+  const videoById = useMemo(() => {
+    const m: Record<string, TikTokVideo> = {}
+    for (const v of videos) m[v.id] = v
+    return m
+  }, [videos])
+
+  const videosWithComments = useMemo(() => {
+    const ids = new Set(comments.map(c => c.video_id))
+    return videos.filter(v => ids.has(v.id))
+  }, [videos, comments])
+
+  const filteredComments = useMemo(() => {
+    let list = comments
+    if (commentVideoId !== 'all') list = list.filter(c => c.video_id === commentVideoId)
+    if (commentSearch.trim()) {
+      const q = commentSearch.toLowerCase()
+      list = list.filter(c =>
+        c.comment_text?.toLowerCase().includes(q) ||
+        c.commenter_username?.toLowerCase().includes(q) ||
+        videoById[c.video_id]?.text?.toLowerCase().includes(q)
+      )
+    }
+    const m = commentSortDir === 'asc' ? 1 : -1
+    return [...list].sort((a, b) => {
+      switch (commentSortKey) {
+        case 'likes': return ((a.comment_likes ?? 0) - (b.comment_likes ?? 0)) * m
+        case 'date': return ((a.posted_at ?? a.scraped_at).localeCompare(b.posted_at ?? b.scraped_at)) * m
+        case 'commenter': return ((a.commenter_username ?? '').localeCompare(b.commenter_username ?? '')) * m
+        case 'video': return ((videoById[a.video_id]?.text ?? '').localeCompare(videoById[b.video_id]?.text ?? '')) * m
+      }
+    })
+  }, [comments, commentVideoId, commentSearch, commentSortKey, commentSortDir, videoById])
+
+  const uniqueCommenters = useMemo(() => new Set(comments.map(c => c.commenter_username).filter(Boolean)).size, [comments])
+  const topComment = comments[0] ?? null
+  const avgCommentLikes = comments.length > 0
+    ? (comments.reduce((s, c) => s + (c.comment_likes ?? 0), 0) / comments.length)
+    : 0
 
   const aiPending = enrichedCount === 0
   const avgViews = videos.length ? Math.round(totalViews / videos.length) : 0
@@ -198,6 +259,163 @@ export default function TikTokClient({ account, videos, totalViews, totalLikes, 
         </div>
       )}
 
+      <div className="tabs" style={{ marginBottom: 20, alignItems: 'center', display: 'flex' }}>
+        <button className={'tab' + (tab === 'videos' ? ' on' : '')} onClick={() => setTab('videos')}>
+          Videos ({videos.length})
+        </button>
+        <button className={'tab' + (tab === 'comments' ? ' on' : '')} onClick={() => setTab('comments')}>
+          Comments ({comments.length})
+        </button>
+      </div>
+
+      {/* ── COMMENTS TAB ── */}
+      {tab === 'comments' && (
+        <div>
+          <div className="kpi-grid" style={{ marginBottom: 20 }}>
+            <div className="kpi joola">
+              <div className="label">Total Comments</div>
+              <div className="value">{comments.length}</div>
+              <div className="delta" style={{ color: 'var(--joola)' }}>from {videosWithComments.length} videos</div>
+            </div>
+            <div className="kpi">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Unique Commenters
+                <Tip text="Number of distinct TikTok accounts that left a comment on JOOLA videos." />
+              </div>
+              <div className="value">{uniqueCommenters}</div>
+              <div className="delta" style={{ color: 'var(--fg-3)' }}>distinct accounts</div>
+            </div>
+            <div className="kpi">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Avg Likes / Comment
+                <Tip text="Average digg (like) count per comment." />
+              </div>
+              <div className="value">{avgCommentLikes.toFixed(1)}</div>
+              <div className="delta" style={{ color: 'var(--fg-3)' }}>per comment</div>
+            </div>
+            <div className="kpi warn">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Top Comment Likes
+                <Tip text="The single most-liked comment on any JOOLA TikTok video." />
+              </div>
+              <div className="value">{topComment ? fmt(topComment.comment_likes) : '—'}</div>
+              <div className="delta up">likes</div>
+            </div>
+          </div>
+
+          {comments.length === 0 ? (
+            <div className="card card-pad-lg">
+              <div className="empty">
+                No comments scraped yet — run <code>scrape_tiktok_comments.py</code> to populate.
+              </div>
+            </div>
+          ) : (
+            <div className="card card-pad-lg">
+              <div className="card-head" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <select
+                  className="fld"
+                  value={commentVideoId}
+                  onChange={e => setCommentVideoId(e.target.value)}
+                  style={{ minWidth: 220, maxWidth: 360 }}
+                >
+                  <option value="all">All videos ({comments.length})</option>
+                  {videosWithComments.map(v => {
+                    const count = comments.filter(c => c.video_id === v.id).length
+                    return (
+                      <option key={v.id} value={v.id}>
+                        {(v.text ?? '(no caption)').slice(0, 50)}{(v.text?.length ?? 0) > 50 ? '…' : ''} ({count})
+                      </option>
+                    )
+                  })}
+                </select>
+                <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--fg-4)' }}>
+                  {filteredComments.length} comment{filteredComments.length !== 1 ? 's' : ''} · click column to sort
+                </div>
+              </div>
+
+              <input
+                className="fld"
+                placeholder="Search comments, usernames, or video captions…"
+                value={commentSearch}
+                onChange={e => setCommentSearch(e.target.value)}
+                style={{ width: '100%', marginBottom: 16, boxSizing: 'border-box' }}
+              />
+
+              {filteredComments.length === 0 ? (
+                <div className="empty">No comments match your filters.</div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="data" style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <SortableTh active={commentSortKey === 'commenter'} direction={commentSortDir} onClick={() => setCommentSort('commenter')} style={{ width: 140 }} title="TikTok username of the commenter">Commenter</SortableTh>
+                        <th title="The comment text">Comment</th>
+                        <SortableTh active={commentSortKey === 'video'} direction={commentSortDir} onClick={() => setCommentSort('video')} style={{ width: 200 }} title="Which JOOLA TikTok video this comment was left on">Video</SortableTh>
+                        <SortableTh active={commentSortKey === 'likes'} direction={commentSortDir} onClick={() => setCommentSort('likes')} num style={{ width: 72 }} title="Likes (diggs) received on this comment">Likes</SortableTh>
+                        <SortableTh active={commentSortKey === 'date'} direction={commentSortDir} onClick={() => setCommentSort('date')} num style={{ width: 110 }} title="When the comment was posted">Posted</SortableTh>
+                        <th style={{ width: 40 }} aria-label="Open"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredComments.map(c => {
+                        const vid = videoById[c.video_id]
+                        return (
+                          <tr key={c.id} style={c.is_brand_reply ? { background: 'color-mix(in srgb, var(--joola) 6%, transparent)' } : undefined}>
+                            <td style={{ verticalAlign: 'top', paddingTop: 10 }}>
+                              <div style={{ fontWeight: 600, fontSize: 12 }}>{c.commenter_username || '—'}</div>
+                              {c.is_brand_reply && (
+                                <span className="pill-joola" style={{ fontSize: 9, marginTop: 3, display: 'inline-block' }}>JOOLA REPLY</span>
+                              )}
+                            </td>
+                            <td style={{ maxWidth: 380, verticalAlign: 'top', paddingTop: 10 }}>
+                              <div style={{ fontSize: 13, lineHeight: '1.5', color: 'var(--fg-1)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                {c.comment_text || '—'}
+                              </div>
+                              {c.sentiment_label && (
+                                <div style={{ marginTop: 4, ...sentimentStyle(c.sentiment_label), fontSize: 11 }}>
+                                  {c.sentiment_label.replace(/_/g, ' ')}
+                                  {c.sentiment_score != null && ` · ${(c.sentiment_score * 100).toFixed(0)}%`}
+                                </div>
+                              )}
+                              {c.topics && c.topics.length > 0 && (
+                                <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                  {c.topics.map(t => (
+                                    <span key={t} className="chip" style={{ fontSize: 10, padding: '1px 6px' }}>{t}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ verticalAlign: 'top', paddingTop: 10 }}>
+                              {vid ? (
+                                <a href={vid.video_url} target="_blank" rel="noreferrer" className="tlink"
+                                  style={{ fontSize: 12, lineHeight: '1.4' }}>
+                                  {(vid.text ?? '(no caption)').slice(0, 55)}{(vid.text?.length ?? 0) > 55 ? '…' : ''}
+                                </a>
+                              ) : <span style={{ color: 'var(--fg-4)', fontSize: 12 }}>—</span>}
+                            </td>
+                            <td className="cell-num" style={{ verticalAlign: 'top', paddingTop: 10, fontWeight: (c.comment_likes ?? 0) > 0 ? 600 : 400 }}>
+                              {fmt(c.comment_likes)}
+                            </td>
+                            <td className="cell-num" style={{ verticalAlign: 'top', paddingTop: 10, color: 'var(--fg-4)', fontSize: 12 }}>
+                              {fmtDate(c.posted_at)}
+                            </td>
+                            <td style={{ verticalAlign: 'top', paddingTop: 8 }}>
+                              <ExtLink href={vid?.video_url ?? '#'} label="Open video on TikTok" />
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── VIDEOS TAB ── */}
+      {tab === 'videos' && (
       <div className="card card-pad-lg">
         <div className="card-head" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
           <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center' }}>
@@ -303,6 +521,62 @@ export default function TikTokClient({ account, videos, totalViews, totalLikes, 
           </div>
         )}
       </div>
+
+      )} {/* end videos tab */}
+
+      {tab === 'videos' && paddleStats.length > 0 && (
+        <div className="card card-pad-lg" style={{ marginTop: 24 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', marginBottom: 20 }}>
+            Paddle Buzz
+            <Tip text="Which JOOLA paddles appear most in TikTok video captions based on AI-extracted product mentions. Bar = relative mention share. Views = total views of videos that mention each paddle." />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {paddleStats.map((p, i) => {
+              const barPct = Math.max((p.mentions / paddleStats[0].mentions) * 100, 4)
+              const positiveShare = p.mentions ? Math.round((p.positive / p.mentions) * 100) : 0
+              return (
+                <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{
+                    width: 22, fontSize: 11, fontWeight: 700, flexShrink: 0, textAlign: 'right',
+                    color: i === 0 ? 'var(--yellow)' : 'var(--fg-4)',
+                  }}>
+                    #{i + 1}
+                  </div>
+                  <div style={{
+                    width: 140, fontSize: 13, flexShrink: 0,
+                    fontWeight: i === 0 ? 700 : 400,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>
+                    {p.name}
+                  </div>
+                  <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', width: `${barPct}%`,
+                      background: 'linear-gradient(90deg, #69C9D0, #EE1D52)',
+                      borderRadius: 3,
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 600, width: 28, textAlign: 'right', flexShrink: 0 }}>
+                    {p.mentions}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--fg-4)', width: 64, textAlign: 'right', flexShrink: 0 }}>
+                    {fmt(p.views)} views
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--joola)', width: 54, textAlign: 'right', flexShrink: 0 }}>
+                    {positiveShare}% pos
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div style={{
+            marginTop: 12, fontSize: 11, color: 'var(--fg-4)',
+            borderTop: '1px solid var(--border)', paddingTop: 10,
+          }}>
+            AI-extracted product mentions · {videos.filter(v => (v.products_mentioned?.length ?? 0) > 0).length} of {videos.length} videos have paddle tags
+          </div>
+        </div>
+      )}
     </div>
   )
 }
