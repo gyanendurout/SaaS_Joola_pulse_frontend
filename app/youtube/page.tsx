@@ -50,8 +50,26 @@ export interface YtChannelWeekly {
   scraped_at: string
 }
 
+export interface YtComment {
+  id: string
+  youtube_comment_id: string
+  video_id: string
+  brand_id: string
+  commenter_username: string | null
+  comment_text: string | null
+  comment_likes: number | null
+  is_brand_reply: boolean
+  posted_at: string | null
+  scraped_at: string
+  sentiment_label: string | null
+  sentiment_score: number | null
+  topics: string[] | null
+  is_crisis: boolean | null
+  is_opportunity: boolean | null
+}
+
 export default async function YoutubePage() {
-  const [channelRes, videosRes, weeklyRes] = await Promise.all([
+  const [channelRes, videosRes, weeklyRes, commentsRes] = await Promise.all([
     supabase.from('yt_channels').select('*').eq('brand_id', JOOLA).maybeSingle(),
     supabase
       .from('yt_videos')
@@ -65,11 +83,17 @@ export default async function YoutubePage() {
       .order('year', { ascending: false })
       .order('week_number', { ascending: false })
       .limit(12),
+    supabase
+      .from('yt_comments')
+      .select('id,youtube_comment_id,video_id,brand_id,commenter_username,comment_text,comment_likes,is_brand_reply,posted_at,scraped_at,sentiment_label,sentiment_score,topics,is_crisis,is_opportunity')
+      .eq('brand_id', JOOLA)
+      .order('comment_likes', { ascending: false }),
   ])
 
   const channel = (channelRes.data ?? null) as YtChannel | null
   const videos = (videosRes.data ?? []) as YtVideo[]
   const weeklyStats = (weeklyRes.data ?? []) as YtChannelWeekly[]
+  const comments = (commentsRes.data ?? []) as YtComment[]
   const latestWeek = weeklyStats[0] ?? null
 
   // Fall back to the most recent non-null value per metric.
@@ -85,6 +109,7 @@ export default async function YoutubePage() {
     <YoutubeClient
       channel={channel}
       videos={videos}
+      comments={comments}
       weeklyStats={weeklyStats}
       latestWeek={latestWeek}
       latestSubscribers={latestSubscribers}
