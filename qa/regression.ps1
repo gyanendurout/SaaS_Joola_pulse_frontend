@@ -40,6 +40,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Ensure node.exe is on PATH — look in common install locations
+$nodeCandidates = @(
+  'C:\Program Files\nodejs',
+  'C:\ProgramData\Accio\pre-install\2186c6e1bbb5\node',
+  'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Microsoft\VisualStudio\NodeJs'
+)
+foreach ($d in $nodeCandidates) {
+  if (Test-Path "$d\node.exe") {
+    $env:PATH = "$d;$env:PATH"
+    break
+  }
+}
+
 $frontendRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $frontendRoot
 
