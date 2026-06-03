@@ -5,6 +5,8 @@ import { SortableTh, ExtLink } from '@/components/ui/SortableTh'
 import { Tip } from '@/components/ui/Tip'
 import { formatEnum } from '@/lib/format'
 import { usePagedRows } from '@/lib/usePagedRows'
+import { Donut, DonutLegend } from '@/components/ui/Donut'
+import type { DonutSlice } from '@/components/ui/Donut'
 import type { TikTokAccount, TikTokVideo, TikTokComment, PaddleBuzz } from './page'
 
 interface Props {
@@ -54,6 +56,7 @@ function fmtDuration(secs: number | string | null): string {
 
 type SortKey = 'caption' | 'views' | 'likes' | 'shares' | 'comments' | 'duration' | 'engagement' | 'sentiment' | 'date'
 type CommentSortKey = 'likes' | 'date' | 'commenter' | 'video'
+type AnalysisFilter = 'all' | 'positive' | 'neutral' | 'negative' | 'crisis' | 'opportunity'
 
 function sentimentStyle(label: string | null): React.CSSProperties {
   if (!label) return { color: 'var(--fg-4)' }
@@ -63,8 +66,41 @@ function sentimentStyle(label: string | null): React.CSSProperties {
   return { color: 'var(--fg-3)' }
 }
 
+const SENT_PILL: Record<string, string> = {
+  positive: 'pill-green', neutral: 'pill-ghost', negative: 'pill-red',
+}
+
+function HBar({ data, colorOf, tipPrefix }: {
+  data: Array<{ name: string; value: number }>
+  colorOf?: (name: string) => string
+  tipPrefix?: string
+}) {
+  const cap = Math.max(1, ...data.map(d => d.value))
+  const total = data.reduce((s, d) => s + d.value, 0)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {data.map(d => {
+        const pct = (d.value / cap) * 100
+        const sharePct = total > 0 ? ((d.value / total) * 100).toFixed(1) : '0.0'
+        const c = colorOf ? colorOf(d.name) : 'var(--yellow)'
+        const tip = `${tipPrefix ? tipPrefix + ' — ' : ''}${d.name}: ${d.value.toLocaleString()} (${sharePct}% of total)`
+        return (
+          <div key={d.name} title={tip} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 44px', alignItems: 'center', gap: 8, padding: '2px 4px', borderRadius: 4, cursor: 'help' }}>
+            <span style={{ fontSize: 11, color: 'var(--fg-3)', textTransform: 'capitalize', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+            <div style={{ height: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ width: `max(${pct}%, ${d.value > 0 ? 4 : 0}px)`, height: '100%', background: c, transition: 'width 200ms ease' }} />
+            </div>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--fg-3)', textAlign: 'right' }}>{d.value.toLocaleString()}</span>
+          </div>
+        )
+      })}
+      {data.length === 0 && <div className="empty" style={{ fontSize: 11, padding: '10px 0' }}>No topic data yet.</div>}
+    </div>
+  )
+}
+
 export default function TikTokClient({ account, videos, comments, totalViews, totalLikes, totalComments, totalShares, topViews, enrichedCount, crisisCount, opportunityCount, paddleStats }: Props) {
-  const [tab, setTab] = useState<'videos' | 'comments'>('videos')
+  const [tab, setTab] = useState<'videos' | 'comments' | 'analysis'>('videos')
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('views')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -74,6 +110,9 @@ export default function TikTokClient({ account, videos, comments, totalViews, to
   const [commentVideoId, setCommentVideoId] = useState<string>('all')
   const [commentSortKey, setCommentSortKey] = useState<CommentSortKey>('likes')
   const [commentSortDir, setCommentSortDir] = useState<'asc' | 'desc'>('desc')
+
+  const [analysisFilter, setAnalysisFilter] = useState<AnalysisFilter>('all')
+  const [analysisSearch, setAnalysisSearch] = useState('')
 
   const setSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -124,6 +163,42 @@ export default function TikTokClient({ account, videos, comments, totalViews, to
     ? (comments.reduce((s, c) => s + (c.comment_likes ?? 0), 0) / comments.length)
     : 0
 
+  const posCount = useMemo(() => comments.filter(c => c.sentiment_label?.toLowerCase() === 'positive').length, [comments])
+  const negCount = useMemo(() => comments.filter(c => c.sentiment_label?.toLowerCase() === 'negative').length, [comments])
+  const analysisCrisisCount = useMemo(() => comments.filter(c => c.is_crisis === true).length, [comments])
+  const analysisOpportunityCount = useMemo(() => comments.filter(c => c.is_opportunity === true).length, [comments])
+  const neutralCount = comments.length - posCount - negCount
+  const positivePct = comments.length > 0 ? (posCount / comments.length) * 100 : 0
+  const negativePct = comments.length > 0 ? (negCount / comments.length) * 100 : 0
+
+  const sentimentSlices: DonutSlice[] = useMemo(() => [
+    { name: 'Positive', pct: comments.length > 0 ? (posCount / comments.length) * 100 : 0, n: posCount, color: 'var(--joola)' },
+    { name: 'Neutral',  pct: comments.length > 0 ? ((comments.length - posCount - negCount) / comments.length) * 100 : 0, n: comments.length - posCount - negCount, color: '#94a3b8' },
+    { name: 'Negative', pct: comments.length > 0 ? (negCount / comments.length) * 100 : 0, n: negCount, color: 'var(--red)' },
+  ], [comments, posCount, negCount])
+
+  const topicTally = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const c of comments) {
+      for (const t of (c.topics ?? [])) { map[t] = (map[t] ?? 0) + 1 }
+    }
+    return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 10)
+  }, [comments])
+
+  const filteredAnalysis = useMemo(() => {
+    let list = [...comments]
+    if (analysisFilter === 'positive') list = list.filter(c => c.sentiment_label?.toLowerCase() === 'positive')
+    else if (analysisFilter === 'negative') list = list.filter(c => c.sentiment_label?.toLowerCase() === 'negative')
+    else if (analysisFilter === 'neutral') list = list.filter(c => !['positive', 'negative'].includes(c.sentiment_label?.toLowerCase() ?? ''))
+    else if (analysisFilter === 'crisis') list = list.filter(c => c.is_crisis === true)
+    else if (analysisFilter === 'opportunity') list = list.filter(c => c.is_opportunity === true)
+    if (analysisSearch.trim()) {
+      const q = analysisSearch.toLowerCase()
+      list = list.filter(c => c.comment_text?.toLowerCase().includes(q) || c.commenter_username?.toLowerCase().includes(q))
+    }
+    return list
+  }, [comments, analysisFilter, analysisSearch])
+
   const aiPending = enrichedCount === 0
   const avgViews = videos.length ? Math.round(totalViews / videos.length) : 0
   const engagementRate = totalViews ? ((totalLikes + totalShares + totalComments) / totalViews) * 100 : 0
@@ -158,6 +233,7 @@ export default function TikTokClient({ account, videos, comments, totalViews, to
 
   const { visibleRows: visibleVideos, containerRef: videoContainerRef, sentinelRef: videoSentinelRef, hasMore: videosHasMore, total: videoTotal, shown: videoShown } = usePagedRows(filtered)
   const { visibleRows: visibleComments, containerRef: commentContainerRef, sentinelRef: commentSentinelRef, hasMore: commentsHasMore, total: commentTotal, shown: commentShown } = usePagedRows(filteredComments)
+  const { visibleRows: visibleAnalysis, containerRef: analysisContainerRef, sentinelRef: analysisSentinelRef, hasMore: analysisHasMore, total: analysisTotal, shown: analysisShown } = usePagedRows(filteredAnalysis)
 
   return (
     <div>
@@ -269,6 +345,9 @@ export default function TikTokClient({ account, videos, comments, totalViews, to
         </button>
         <button className={'tab' + (tab === 'comments' ? ' on' : '')} onClick={() => setTab('comments')}>
           Comments ({comments.length})
+        </button>
+        <button className={'tab' + (tab === 'analysis' ? ' on' : '')} onClick={() => setTab('analysis')}>
+          Comment Analysis
         </button>
       </div>
 
@@ -541,6 +620,166 @@ export default function TikTokClient({ account, videos, comments, totalViews, to
       </div>
 
       )} {/* end videos tab */}
+
+      {/* ── COMMENT ANALYSIS TAB ── */}
+      {tab === 'analysis' && (
+        <div>
+          <div className="kpi-grid" style={{ marginBottom: 20 }}>
+            <div className="kpi joola">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Total Comments<Tip text="Total TikTok comments scraped across all JOOLA videos." />
+              </div>
+              <div className="value">{fmt(comments.length)}</div>
+              <div className="delta" style={{ color: 'var(--joola)' }}>from {videosWithComments.length} videos</div>
+            </div>
+            <div className="kpi joola">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Positive Sentiment<Tip text="Percentage of comments classified as positive by AI." />
+              </div>
+              <div className="value">{positivePct.toFixed(1)}<span style={{ fontSize: 14, fontWeight: 400 }}>%</span></div>
+              <div className="delta up">{posCount.toLocaleString()} comments</div>
+            </div>
+            <div className="kpi danger">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Negative Sentiment<Tip text="Percentage of comments classified as negative — spikes signal a content or product issue." />
+              </div>
+              <div className="value">{negativePct.toFixed(1)}<span style={{ fontSize: 14, fontWeight: 400 }}>%</span></div>
+              <div className="delta down">{negCount.toLocaleString()} comments</div>
+            </div>
+            <div className="kpi warn">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Crisis Signals<Tip text="Comments flagged as crisis — urgent negative feedback needing a response." />
+              </div>
+              <div className="value">{analysisCrisisCount}</div>
+              <div className="delta" style={{ color: analysisCrisisCount > 0 ? 'var(--red)' : 'var(--fg-4)' }}>
+                {analysisCrisisCount > 0 ? 'need attention' : 'none detected'}
+              </div>
+            </div>
+            <div className="kpi">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Opportunities<Tip text="Comments flagged as opportunities — positive buying signals or brand advocates." />
+              </div>
+              <div className="value">{analysisOpportunityCount}</div>
+              <div className="delta up">positive signals</div>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <div className="card card-pad-lg">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 0 }}>
+                <div style={{ padding: '20px 24px', borderRight: '1px solid var(--line)', borderBottom: '4px solid var(--joola)' }}>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--joola)', lineHeight: 1 }}>{positivePct.toFixed(1)}%</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 6 }}>POSITIVE</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 4 }}>of {comments.length.toLocaleString()} comments</div>
+                </div>
+                <div style={{ padding: '20px 24px', borderRight: '1px solid var(--line)', borderBottom: '4px solid rgba(255,255,255,0.1)' }}>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--fg-3)', lineHeight: 1 }}>{neutralCount.toLocaleString()}</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 6 }}>NEUTRAL</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 4 }}>of {comments.length.toLocaleString()} comments</div>
+                </div>
+                <div style={{ padding: '20px 24px', borderBottom: '4px solid var(--red)' }}>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--red)', lineHeight: 1 }}>{negativePct.toFixed(1)}%</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 6 }}>NEGATIVE</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 4 }}>of {comments.length.toLocaleString()} comments</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card-grid cg-2-1">
+            <div className="card card-pad-lg">
+              <div className="card-head" style={{ marginBottom: 14 }}>
+                <h3>COMMENT INTELLIGENCE<Tip text="TikTok comments AI-classified by sentiment, topics, crisis signals, and opportunity flags." /></h3>
+                <span className="meta">{filteredAnalysis.length.toLocaleString()} shown · all-time</span>
+              </div>
+              <div className="tabs" style={{ marginBottom: 14, flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                <button className={'tab ' + (analysisFilter === 'all' ? 'on' : '')} onClick={() => setAnalysisFilter('all')}>All ({comments.length})</button>
+                <button className={'tab ' + (analysisFilter === 'positive' ? 'on' : '')} onClick={() => setAnalysisFilter('positive')}>Positive ({posCount})</button>
+                <button className={'tab ' + (analysisFilter === 'neutral' ? 'on' : '')} onClick={() => setAnalysisFilter('neutral')}>Neutral ({neutralCount})</button>
+                <button className={'tab ' + (analysisFilter === 'negative' ? 'on' : '')} onClick={() => setAnalysisFilter('negative')}>Negative ({negCount})</button>
+                <button className={'tab ' + (analysisFilter === 'crisis' ? 'on' : '')} onClick={() => setAnalysisFilter('crisis')}>Crisis ({analysisCrisisCount})</button>
+                <button className={'tab ' + (analysisFilter === 'opportunity' ? 'on' : '')} onClick={() => setAnalysisFilter('opportunity')}>Opportunity ({analysisOpportunityCount})</button>
+              </div>
+              <input className="fld" placeholder="Search comments or usernames…" value={analysisSearch} onChange={e => setAnalysisSearch(e.target.value)} style={{ width: '100%', marginBottom: 14, boxSizing: 'border-box' }} />
+              {filteredAnalysis.length === 0 ? (
+                <div className="empty">No comments match your filters.</div>
+              ) : (
+                <div ref={analysisContainerRef} style={{ maxHeight: 520, overflowY: 'auto' }}>
+                  {visibleAnalysis.map((c, i) => {
+                    const sent = (c.sentiment_label || 'neutral').toLowerCase()
+                    const leftBorderColor = sent === 'positive' ? 'var(--joola)' : sent === 'negative' ? 'var(--red)' : 'rgba(255,255,255,0.08)'
+                    const vid = videoById[c.video_id]
+                    return (
+                      <div key={c.id ?? i} className="comment-row" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', borderLeft: `4px solid ${leftBorderColor}`, paddingLeft: 10 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: 'var(--bg-3)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: 'var(--fg-2)' }}>
+                          {(c.commenter_username || '?').charAt(0).toUpperCase()}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="comment-user">
+                            <span className="uname">@{c.commenter_username || '—'}</span>
+                            {c.posted_at && <span className="meta">{fmtDate(c.posted_at)}</span>}
+                            {c.is_brand_reply && <span className="pill-joola" style={{ fontSize: 9 }}>JOOLA REPLY</span>}
+                          </div>
+                          <div className="comment-body">
+                            <div className="quote">&ldquo;{c.comment_text || '—'}&rdquo;</div>
+                            {vid && (
+                              <a href={vid.video_url} target="_blank" rel="noreferrer" className="tlink"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, marginTop: 5, color: 'var(--fg-4)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                {(vid.text ?? '(no caption)').slice(0, 55)}{(vid.text?.length ?? 0) > 55 ? '…' : ''}
+                              </a>
+                            )}
+                            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <span className={'pill ' + (SENT_PILL[sent] ?? 'pill-ghost')}>{sent}</span>
+                              {c.sentiment_score != null && (
+                                <span className="mono" style={{ fontSize: 10, color: sent === 'positive' ? 'var(--joola)' : sent === 'negative' ? 'var(--red)' : 'var(--fg-4)', border: '1px solid currentColor', padding: '1px 5px', borderRadius: 3, fontWeight: 700 }}>
+                                  {c.sentiment_score > 0 ? '+' : ''}{c.sentiment_score.toFixed(2)}
+                                </span>
+                              )}
+                              {c.is_crisis && <span className="pill pill-red">⚠ CRISIS</span>}
+                              {c.is_opportunity && <span className="pill pill-green">● OPPORTUNITY</span>}
+                              {(c.topics ?? []).map(t => <span key={t} className="chip" style={{ fontSize: 10, padding: '1px 6px' }}>{t}</span>)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {analysisHasMore && (
+                    <div ref={analysisSentinelRef} style={{ padding: '10px 0', textAlign: 'center', fontSize: 11, color: 'var(--fg-4)' }}>
+                      {analysisTotal - analysisShown} more — scroll to load
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="card card-pad-lg" style={{ marginBottom: 14 }}>
+                <div className="card-head">
+                  <h3>SENTIMENT MIX<Tip text="Overall breakdown of positive, neutral, and negative TikTok comments." /></h3>
+                  <span className="meta">{comments.length.toLocaleString()} comments · all-time</span>
+                </div>
+                <div className="donut-wrap" style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Donut data={sentimentSlices} size={140} thickness={22} />
+                  <DonutLegend data={sentimentSlices} />
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--fg-4)', marginTop: 10, lineHeight: 1.5 }}>
+                  {positivePct.toFixed(0)}% of viewers comment positively —{' '}
+                  {positivePct > 60 ? 'excellent channel sentiment' : positivePct > 40 ? 'healthy — keep engaging' : 'needs attention'}
+                </div>
+              </div>
+              <div className="card card-pad-lg">
+                <div className="card-head">
+                  <h3>TOP TOPICS<Tip text="Most discussed topics in TikTok comments — create more content around what viewers already care about." /></h3>
+                  <span className="meta">by frequency · all-time</span>
+                </div>
+                <HBar data={topicTally} colorOf={() => 'var(--yellow)'} tipPrefix="Topic mentioned in comments" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {tab === 'videos' && paddleStats.length > 0 && (
         <div className="card card-pad-lg" style={{ marginTop: 24 }}>

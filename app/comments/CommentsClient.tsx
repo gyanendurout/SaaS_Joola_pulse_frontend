@@ -71,6 +71,16 @@ interface CommentsClientProps {
   viralitySlow: ViralityRow[]
 }
 
+// Helper: hash username to a consistent avatar background color
+const AVATAR_COLORS = ['#F5E625', '#22c55e', '#38bdf8', '#f472b6', '#fb923c', '#a78bfa']
+function avatarColor(username: string): string {
+  let hash = 0
+  for (let i = 0; i < username.length; i++) {
+    hash = username.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+}
+
 const SENT_COLORS: Record<string, string> = {
   positive: 'var(--joola)', neutral: '#94a3b8', negative: 'var(--red)',
   unknown: 'var(--fg-4)',
@@ -91,6 +101,12 @@ const EMOTION_COLORS: Record<string, string> = {
   disgust: 'var(--pink)',
   anger: 'var(--red)',
   frustrated: 'var(--red)',
+}
+
+const EMOTION_EMOJI: Record<string, string> = {
+  joy: '😊', happy: '😄', excited: '🤩', surprise: '😲',
+  neutral: '😐', curious: '🤔', sadness: '😔', fear: '😨',
+  disgust: '😒', anger: '😠', frustrated: '😤',
 }
 
 type TabType = 'all' | 'questions' | 'intent' | 'complaints' | 'competitors' | 'wishlist'
@@ -123,15 +139,17 @@ function HBar({
         const sharePct = total > 0 ? ((d.value / total) * 100).toFixed(1) : '0.0'
         const c = colorOf ? colorOf(d.name) : 'var(--yellow)'
         const tip = `${tipPrefix ? tipPrefix + ' — ' : ''}${d.name}: ${d.value.toLocaleString()} (${sharePct}% of total).`
+        const emoji = EMOTION_EMOJI[d.name.toLowerCase()]
+        const label = emoji ? `${emoji} ${d.name}` : d.name
         return (
           <div
             key={d.name}
             className="hover-row"
             title={tip}
-            style={{ display: 'grid', gridTemplateColumns: '88px 1fr 44px', alignItems: 'center', gap: 8, padding: '2px 4px', borderRadius: 4, cursor: 'help' }}
+            style={{ display: 'grid', gridTemplateColumns: '100px 1fr 44px', alignItems: 'center', gap: 8, padding: '2px 4px', borderRadius: 4, cursor: 'help' }}
           >
-            <span style={{ fontSize: 11, color: 'var(--fg-3)', textTransform: 'capitalize' }}>{d.name}</span>
-            <div style={{ height: 8, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
+            <span style={{ fontSize: 11, color: 'var(--fg-3)', textTransform: 'capitalize' }}>{label}</span>
+            <div style={{ height: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
               <div style={{ width: `max(${pct}%, ${d.value > 0 ? 4 : 0}px)`, height: '100%', background: c, transition: 'width 200ms ease' }} />
             </div>
             <span className="mono" style={{ fontSize: 11, color: 'var(--fg-3)', textAlign: 'right' }}>{d.value.toLocaleString()}</span>
@@ -179,7 +197,7 @@ function CompetitorTable({ rows }: { rows: CompetitorRow[] }) {
 
 export default function CommentsClient({
   comments, wishlist, sentimentData, topicData, emotionData, competitorData, wishlistCategoryData,
-  totalComments, uniqueUsers, questionsCount, purchaseIntentCount, competitorMentionsCount, wishlistCount,
+  totalComments, uniqueUsers: _uniqueUsers, questionsCount, purchaseIntentCount, competitorMentionsCount, wishlistCount,
   viralityFast, viralitySlow,
 }: CommentsClientProps) {
   const [tab, setTab] = useState<TabType>('all')
@@ -301,6 +319,50 @@ export default function CommentsClient({
         </div>
       </div>
 
+      {/* Sentiment Pulse strip */}
+      <div className="section">
+        <div className="card card-pad-lg">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 0 }}>
+            {/* Positive block */}
+            <div style={{ padding: '20px 24px', borderRight: '1px solid var(--line)', borderBottom: '4px solid var(--joola)' }}>
+              <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--joola)', lineHeight: 1 }}>
+                {positivePct.toFixed(1)}%
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 6 }}>
+                POSITIVE
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 4 }}>
+                of {totalComments.toLocaleString()} comments
+              </div>
+            </div>
+            {/* Neutral block */}
+            <div style={{ padding: '20px 24px', borderRight: '1px solid var(--line)', borderBottom: '4px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--fg-3)', lineHeight: 1 }}>
+                {(totalComments - positiveCount - negativeCount).toLocaleString()}
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 6 }}>
+                NEUTRAL
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 4 }}>
+                of {totalComments.toLocaleString()} comments
+              </div>
+            </div>
+            {/* Negative block */}
+            <div style={{ padding: '20px 24px', borderBottom: '4px solid var(--red)' }}>
+              <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--red)', lineHeight: 1 }}>
+                {negativePct.toFixed(1)}%
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 6 }}>
+                NEGATIVE
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 4 }}>
+                of {totalComments.toLocaleString()} comments
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Virality indicator */}
       <div className="section">
         <div className="card-grid cg-2">
@@ -322,7 +384,13 @@ export default function CommentsClient({
                     key={v.post_id}
                     className="hover-row"
                     title={tip}
-                    style={{ padding: '8px 6px', borderBottom: '1px solid var(--line-2)', borderRadius: 4, cursor: 'help' }}
+                    style={{
+                      padding: '8px 6px 8px 10px',
+                      borderBottom: '1px solid var(--line-2)',
+                      borderRadius: 4,
+                      cursor: 'help',
+                      borderLeft: '4px solid var(--yellow)',
+                    }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                       <div style={{ fontSize: 12, color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
@@ -331,6 +399,10 @@ export default function CommentsClient({
                       <span className="mono" style={{ fontSize: 11, color: 'var(--yellow)', fontWeight: 700 }}>
                         {firstHourPct}% in 1h
                       </span>
+                    </div>
+                    {/* Mini virality bar */}
+                    <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.05)', marginTop: 6 }}>
+                      <div style={{ width: firstHourPct + '%', height: '100%', background: 'var(--yellow)', borderRadius: 2 }} />
                     </div>
                     <div style={{ display: 'flex', gap: 10, marginTop: 4, fontSize: 10.5, color: 'var(--fg-4)' }}>
                       <span className="mono">{v.first_hour}/1h</span>
@@ -362,7 +434,13 @@ export default function CommentsClient({
                     key={v.post_id}
                     className="hover-row"
                     title={tip}
-                    style={{ padding: '8px 6px', borderBottom: '1px solid var(--line-2)', borderRadius: 4, cursor: 'help' }}
+                    style={{
+                      padding: '8px 6px 8px 10px',
+                      borderBottom: '1px solid var(--line-2)',
+                      borderRadius: 4,
+                      cursor: 'help',
+                      borderLeft: '4px solid var(--joola)',
+                    }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                       <div style={{ fontSize: 12, color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
@@ -371,6 +449,10 @@ export default function CommentsClient({
                       <span className="mono" style={{ fontSize: 11, color: 'var(--joola)', fontWeight: 700 }}>
                         {v.total_comments} comments
                       </span>
+                    </div>
+                    {/* Mini virality bar */}
+                    <div style={{ width: '100%', height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.05)', marginTop: 6 }}>
+                      <div style={{ width: firstHourPct + '%', height: '100%', background: 'var(--joola)', borderRadius: 2 }} />
                     </div>
                     <div style={{ display: 'flex', gap: 10, marginTop: 4, fontSize: 10.5, color: 'var(--fg-4)' }}>
                       <span className="mono">{v.first_hour}/1h ({firstHourPct}%)</span>
@@ -475,25 +557,47 @@ export default function CommentsClient({
             {tab === 'wishlist' ? (
               <div>
                 {filteredWishlist.slice(0, 80).map((w) => (
-                  <div className="comment-row" key={w.comment_id}>
-                    <div className="comment-user">
-                      <span className="uname">@{w.username}</span>
-                      {w.requested_at && (
-                        <span className="meta">{format(new Date(w.requested_at), 'MMM d')}</span>
-                      )}
-                      {w.category && <span className="pill pill-info" style={{ textTransform: 'capitalize' }}>{w.category}</span>}
-                      {w.product_reference && <span className="pill pill-ghost">{w.product_reference}</span>}
-                      {w.times_similar_requested != null && w.times_similar_requested > 1 && (
-                        <span className="pill pill-yellow">×{w.times_similar_requested} requested</span>
-                      )}
+                  <div
+                    className="comment-row"
+                    key={w.comment_id}
+                    style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}
+                  >
+                    {/* Avatar circle */}
+                    <div style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: '50%',
+                      flexShrink: 0,
+                      background: avatarColor(w.username || '?'),
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: '#000',
+                    }}>
+                      {(w.username || '?').charAt(0).toUpperCase()}
                     </div>
-                    <div className="comment-body">
-                      <div className="quote">&ldquo;{w.wishlist_text}&rdquo;</div>
-                      {w.request_summary && (
-                        <div className="mono" style={{ fontSize: 11, color: 'var(--fg-4)', marginTop: 6 }}>
-                          → {w.request_summary}
-                        </div>
-                      )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="comment-user">
+                        <span className="uname">@{w.username}</span>
+                        {w.requested_at && (
+                          <span className="meta">{format(new Date(w.requested_at), 'MMM d')}</span>
+                        )}
+                        {w.category && <span className="pill pill-info" style={{ textTransform: 'capitalize' }}>{w.category}</span>}
+                        {w.product_reference && <span className="pill pill-ghost">{w.product_reference}</span>}
+                        {w.times_similar_requested != null && w.times_similar_requested > 1 && (
+                          <span className="pill pill-yellow">×{w.times_similar_requested} requested</span>
+                        )}
+                      </div>
+                      <div className="comment-body">
+                        <div className="quote">&ldquo;{w.wishlist_text}&rdquo;</div>
+                        {w.request_summary && (
+                          <div className="mono" style={{ fontSize: 11, color: 'var(--fg-4)', marginTop: 6 }}>
+                            → {w.request_summary}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -509,40 +613,72 @@ export default function CommentsClient({
               <div ref={containerRef} className="table-wrap scroll">
                 {visibleRows.map((c, i) => {
                   const sent = (c.sentiment || 'neutral').toLowerCase()
+                  const leftBorderColor =
+                    sent === 'positive' ? '#22c55e' :
+                    sent === 'negative' ? 'var(--red)' :
+                    'rgba(255,255,255,0.08)'
                   return (
-                    <div className="comment-row" key={c.comment_id ?? i}>
-                      <div className="comment-user">
-                        <span className="uname">@{c.username}</span>
-                        {c.commented_at && (
-                          <span className="meta">{format(new Date(c.commented_at), 'MMM d')}</span>
-                        )}
-                        {c.post_url && (
-                          <a href={c.post_url} target="_blank" rel="noopener noreferrer"
-                            className="meta tlink">↗ post</a>
-                        )}
-                        {tab === 'competitors' && c.competitor_mentioned && (
-                          <span className="pill pill-yellow" style={{ textTransform: 'capitalize' }}>vs. {c.competitor_mentioned}</span>
-                        )}
+                    <div
+                      className="comment-row"
+                      key={c.comment_id ?? i}
+                      style={{
+                        display: 'flex',
+                        gap: 12,
+                        alignItems: 'flex-start',
+                        borderLeft: `4px solid ${leftBorderColor}`,
+                        paddingLeft: 10,
+                      }}
+                    >
+                      {/* Avatar circle */}
+                      <div style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: '50%',
+                        flexShrink: 0,
+                        background: avatarColor(c.username || '?'),
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: '#000',
+                      }}>
+                        {(c.username || '?').charAt(0).toUpperCase()}
                       </div>
-                      <div className="comment-body">
-                        <div className="quote">&ldquo;{c.comment_text}&rdquo;</div>
-                        {tab === 'competitors' && c.competitor_context && (
-                          <div className="mono" style={{ fontSize: 11, color: 'var(--fg-4)', marginTop: 6 }}>
-                            context: {c.competitor_context}
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                          {c.is_question && <span className="pill pill-info">? QUESTION</span>}
-                          {c.purchase_intent && <span className="pill pill-green">● INTENT</span>}
-                          {c.is_complaint && <span className="pill pill-red">⚠ COMPLAINT</span>}
-                          {c.is_wishlist && <span className="pill pill-yellow">★ WISHLIST</span>}
-                          {c.mentions_competitor && tab !== 'competitors' && (
-                            <span className="pill pill-amber">⚐ COMPETITOR</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="comment-user">
+                          <span className="uname">@{c.username}</span>
+                          {c.commented_at && (
+                            <span className="meta">{format(new Date(c.commented_at), 'MMM d')}</span>
                           )}
-                          {c.emotion && <span className="pill pill-ghost">{c.emotion}</span>}
-                          {c.primary_topic && <span className="pill pill-ghost">{c.primary_topic}</span>}
-                          <ScoreTag score={c.sentiment_score} />
-                          <span className={'pill ' + (SENT_PILL[sent] ?? 'pill-ghost')}>{sent}</span>
+                          {c.post_url && (
+                            <a href={c.post_url} target="_blank" rel="noopener noreferrer"
+                              className="meta tlink">↗ post</a>
+                          )}
+                          {tab === 'competitors' && c.competitor_mentioned && (
+                            <span className="pill pill-yellow" style={{ textTransform: 'capitalize' }}>vs. {c.competitor_mentioned}</span>
+                          )}
+                        </div>
+                        <div className="comment-body">
+                          <div className="quote">&ldquo;{c.comment_text}&rdquo;</div>
+                          {tab === 'competitors' && c.competitor_context && (
+                            <div className="mono" style={{ fontSize: 11, color: 'var(--fg-4)', marginTop: 6 }}>
+                              context: {c.competitor_context}
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                            {c.is_question && <span className="pill pill-info">? QUESTION</span>}
+                            {c.purchase_intent && <span className="pill pill-green">● INTENT</span>}
+                            {c.is_complaint && <span className="pill pill-red">⚠ COMPLAINT</span>}
+                            {c.is_wishlist && <span className="pill pill-yellow">★ WISHLIST</span>}
+                            {c.mentions_competitor && tab !== 'competitors' && (
+                              <span className="pill pill-amber">⚐ COMPETITOR</span>
+                            )}
+                            {c.emotion && <span className="pill pill-ghost">{c.emotion}</span>}
+                            {c.primary_topic && <span className="pill pill-ghost">{c.primary_topic}</span>}
+                            <ScoreTag score={c.sentiment_score} />
+                            <span className={'pill ' + (SENT_PILL[sent] ?? 'pill-ghost')}>{sent}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -585,6 +721,15 @@ export default function CommentsClient({
                 <div className="donut-wrap">
                   <Donut data={sentimentSlices} size={140} thickness={22} />
                   <DonutLegend data={sentimentSlices} />
+                </div>
+                {/* Sentiment insight sentence */}
+                <div style={{ fontSize: 11, color: 'var(--fg-4)', marginTop: 10, lineHeight: 1.5 }}>
+                  {positivePct.toFixed(0)}% of your audience comments positively —{' '}
+                  {positivePct > 60
+                    ? 'excellent brand love'
+                    : positivePct > 40
+                    ? 'healthy — keep engaging'
+                    : 'needs attention'}
                 </div>
               </div>
             )}

@@ -7,6 +7,8 @@ import { Tip } from '@/components/ui/Tip'
 import { NewsArticleGenerateCTA } from '@/components/content/NewsArticleGenerateCTA'
 import { formatEnum } from '@/lib/format'
 import type { RedditMention, PaddleRedditStat } from './page'
+import { Donut, DonutLegend } from '@/components/ui/Donut'
+import type { DonutSlice } from '@/components/ui/Donut'
 
 const BANNER_DISMISS_KEY = 'joola.reddit.banner-dismissed'
 
@@ -39,6 +41,41 @@ function sentimentBadge(s: string | null) {
 
 type FlagFilter = 'all' | 'crisis' | 'opportunity'
 type SortKey = 'flag' | 'title' | 'subreddit' | 'author' | 'upvotes' | 'sentiment' | 'date'
+type PageTab = 'mentions' | 'analysis'
+type AnalysisFilter = 'all' | 'positive' | 'neutral' | 'negative' | 'crisis' | 'opportunity'
+
+const SENT_PILL: Record<string, string> = {
+  positive: 'pill-green', neutral: 'pill-ghost', negative: 'pill-red',
+}
+
+function HBar({ data, colorOf, tipPrefix }: {
+  data: Array<{ name: string; value: number }>
+  colorOf?: (name: string) => string
+  tipPrefix?: string
+}) {
+  const cap = Math.max(1, ...data.map(d => d.value))
+  const total = data.reduce((s, d) => s + d.value, 0)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {data.map(d => {
+        const pct = (d.value / cap) * 100
+        const sharePct = total > 0 ? ((d.value / total) * 100).toFixed(1) : '0.0'
+        const c = colorOf ? colorOf(d.name) : 'var(--yellow)'
+        const tip = `${tipPrefix ? tipPrefix + ' — ' : ''}${d.name}: ${d.value.toLocaleString()} (${sharePct}% of total)`
+        return (
+          <div key={d.name} title={tip} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 44px', alignItems: 'center', gap: 8, padding: '2px 4px', borderRadius: 4, cursor: 'help' }}>
+            <span style={{ fontSize: 11, color: 'var(--fg-3)', textTransform: 'capitalize', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+            <div style={{ height: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ width: `max(${pct}%, ${d.value > 0 ? 4 : 0}px)`, height: '100%', background: c, transition: 'width 200ms ease' }} />
+            </div>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--fg-3)', textAlign: 'right' }}>{d.value.toLocaleString()}</span>
+          </div>
+        )
+      })}
+      {data.length === 0 && <div className="empty" style={{ fontSize: 11, padding: '10px 0' }}>No topic data yet.</div>}
+    </div>
+  )
+}
 
 export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppCount, switchCount, subredditBreakdown, paddleStats }: Props) {
   const [subredditFilter, setSubredditFilter] = useState<string>('all')
@@ -48,6 +85,9 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [bannerDismissed, setBannerDismissed] = useState(false)
   const [paddleFilter, setPaddleFilter] = useState<string>('all')
+  const [pageTab, setPageTab] = useState<PageTab>('mentions')
+  const [analysisFilter, setAnalysisFilter] = useState<AnalysisFilter>('all')
+  const [analysisSearch, setAnalysisSearch] = useState('')
 
   useEffect(() => {
     try {
@@ -114,7 +154,42 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
     return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 12)
   }, [mentions])
 
+  // Analysis tab computations (sentiment field on RedditMention is `sentiment`, not `sentiment_label`)
+  const posCount = useMemo(() => mentions.filter(m => m.sentiment?.toLowerCase() === 'positive').length, [mentions])
+  const negCount = useMemo(() => mentions.filter(m => m.sentiment?.toLowerCase() === 'negative').length, [mentions])
+  const analysisCrisisCount = useMemo(() => mentions.filter(m => m.is_crisis === true).length, [mentions])
+  const analysisOppCount = useMemo(() => mentions.filter(m => m.is_opportunity === true).length, [mentions])
+  const neutralCount = mentions.length - posCount - negCount
+  const positivePct = mentions.length > 0 ? (posCount / mentions.length) * 100 : 0
+  const negativePct = mentions.length > 0 ? (negCount / mentions.length) * 100 : 0
+
+  const sentimentSlices: DonutSlice[] = useMemo(() => [
+    { name: 'Positive', pct: mentions.length > 0 ? (posCount / mentions.length) * 100 : 0, n: posCount, color: 'var(--joola)' },
+    { name: 'Neutral',  pct: mentions.length > 0 ? ((mentions.length - posCount - negCount) / mentions.length) * 100 : 0, n: mentions.length - posCount - negCount, color: '#94a3b8' },
+    { name: 'Negative', pct: mentions.length > 0 ? (negCount / mentions.length) * 100 : 0, n: negCount, color: 'var(--red)' },
+  ], [mentions, posCount, negCount])
+
+  const filteredAnalysis = useMemo(() => {
+    let list = [...mentions]
+    if (analysisFilter === 'positive') list = list.filter(m => m.sentiment?.toLowerCase() === 'positive')
+    else if (analysisFilter === 'negative') list = list.filter(m => m.sentiment?.toLowerCase() === 'negative')
+    else if (analysisFilter === 'neutral') list = list.filter(m => !['positive', 'negative'].includes(m.sentiment?.toLowerCase() ?? ''))
+    else if (analysisFilter === 'crisis') list = list.filter(m => m.is_crisis === true)
+    else if (analysisFilter === 'opportunity') list = list.filter(m => m.is_opportunity === true)
+    if (analysisSearch.trim()) {
+      const q = analysisSearch.toLowerCase()
+      list = list.filter(m =>
+        m.post_title?.toLowerCase().includes(q) ||
+        m.content_text?.toLowerCase().includes(q) ||
+        m.author?.toLowerCase().includes(q) ||
+        (m.topics ?? []).some(t => t.toLowerCase().includes(q))
+      )
+    }
+    return list
+  }, [mentions, analysisFilter, analysisSearch])
+
   const { visibleRows, containerRef, sentinelRef, hasMore, total, shown } = usePagedRows(filtered)
+  const { visibleRows: visibleAnalysis, containerRef: analysisContainerRef, sentinelRef: analysisSentinelRef, hasMore: analysisHasMore, total: analysisTotal, shown: analysisShown } = usePagedRows(filteredAnalysis)
 
   return (
     <div>
@@ -131,26 +206,6 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
         <div className="live-pulse-dot" />
       </div>
 
-      {crisisCount > 0 && (
-        <div style={{
-          background: 'color-mix(in srgb, #f87171 12%, transparent)',
-          border: '1px solid color-mix(in srgb, #f87171 40%, transparent)',
-          borderRadius: 8, padding: '12px 16px', marginBottom: 16,
-          display: 'flex', alignItems: 'center', gap: 12, fontSize: 13, flexWrap: 'wrap',
-        }}>
-          <span style={{ color: '#f87171', fontWeight: 800, fontSize: 14 }}>🚨 {crisisCount} CRISIS SIGNALS</span>
-          <span style={{ color: 'var(--fg-2)' }}>
-            AI flagged {crisisCount} Reddit mention{crisisCount === 1 ? '' : 's'} containing crisis-level content (defects, complaints, warranty issues).
-          </span>
-          <button
-            className="btn btn-yellow"
-            style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 12px' }}
-            onClick={() => setFlagFilter(flagFilter === 'crisis' ? 'all' : 'crisis')}
-          >
-            {flagFilter === 'crisis' ? 'Show all' : 'View crisis posts →'}
-          </button>
-        </div>
-      )}
 
       {!fullyEnriched && !bannerDismissed && (
         <div style={{
@@ -176,6 +231,17 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
           >×</button>
         </div>
       )}
+
+      <div className="tabs" style={{ marginBottom: 24, alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        <button className={'tab' + (pageTab === 'mentions' ? ' on' : '')} onClick={() => setPageTab('mentions')}>
+          Mentions ({mentions.length})
+        </button>
+        <button className={'tab' + (pageTab === 'analysis' ? ' on' : '')} onClick={() => setPageTab('analysis')}>
+          Mention Analysis
+        </button>
+      </div>
+
+      {pageTab === 'mentions' && (<>
 
       <div className="kpi-grid" style={{ marginBottom: 28 }}>
         <div className="kpi joola">
@@ -483,7 +549,7 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
                       </button>
                     </td>
                     <td style={{ fontSize: 12, color: 'var(--fg-3)' }}>
-                      {m.author ? `u/${m.author}` : '—'}
+                      {m.author ? `u/${m.author}` : m.reddit_post_id}
                     </td>
                     <td className="cell-num" style={{ fontWeight: 600 }}>
                       {m.upvotes != null ? m.upvotes.toLocaleString() : '—'}
@@ -518,6 +584,166 @@ export default function RedditClient({ mentions, totalUpvotes, crisisCount, oppC
           </div>
         )}
       </div>
+
+      </>)}
+
+      {pageTab === 'analysis' && (
+        <div>
+          <div className="kpi-grid" style={{ marginBottom: 20 }}>
+            <div className="kpi joola">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Total Mentions<Tip text="Total Reddit mentions of JOOLA tracked across all subreddits." />
+              </div>
+              <div className="value">{mentions.length}</div>
+              <div className="delta up">JOOLA on Reddit</div>
+            </div>
+            <div className="kpi joola">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Positive Sentiment<Tip text="Percentage of mentions classified as positive by AI." />
+              </div>
+              <div className="value">{positivePct.toFixed(1)}<span style={{ fontSize: 14, fontWeight: 400 }}>%</span></div>
+              <div className="delta up">{posCount.toLocaleString()} mentions</div>
+            </div>
+            <div className="kpi danger">
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Negative Sentiment<Tip text="Percentage of mentions classified as negative." />
+              </div>
+              <div className="value">{negativePct.toFixed(1)}<span style={{ fontSize: 14, fontWeight: 400 }}>%</span></div>
+              <div className="delta down">{negCount.toLocaleString()} mentions</div>
+            </div>
+            <div className={'kpi' + (analysisCrisisCount > 0 ? ' danger' : '')}>
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Crisis Signals<Tip text="Mentions flagged as crisis — complaints, defects, or brand-damaging content." />
+              </div>
+              <div className="value">{analysisCrisisCount}</div>
+              <div className="delta" style={{ color: analysisCrisisCount > 0 ? 'var(--red)' : 'var(--fg-4)' }}>
+                {analysisCrisisCount > 0 ? 'need attention' : 'none detected'}
+              </div>
+            </div>
+            <div className={'kpi' + (analysisOppCount > 0 ? ' joola' : '')}>
+              <div className="label" style={{ display: 'flex', alignItems: 'center' }}>
+                Opportunities<Tip text="Mentions flagged as opportunities — buying intent or praise worth amplifying." />
+              </div>
+              <div className="value">{analysisOppCount}</div>
+              <div className="delta up">buy intent / praise</div>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <div className="card card-pad-lg">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 0 }}>
+                <div style={{ padding: '20px 24px', borderRight: '1px solid var(--line)', borderBottom: '4px solid var(--joola)' }}>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--joola)', lineHeight: 1 }}>{positivePct.toFixed(1)}%</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 6 }}>POSITIVE</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 4 }}>of {mentions.length.toLocaleString()} mentions</div>
+                </div>
+                <div style={{ padding: '20px 24px', borderRight: '1px solid var(--line)', borderBottom: '4px solid rgba(255,255,255,0.1)' }}>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--fg-3)', lineHeight: 1 }}>{neutralCount.toLocaleString()}</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 6 }}>NEUTRAL</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 4 }}>of {mentions.length.toLocaleString()} mentions</div>
+                </div>
+                <div style={{ padding: '20px 24px', borderBottom: '4px solid var(--red)' }}>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--red)', lineHeight: 1 }}>{negativePct.toFixed(1)}%</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 6 }}>NEGATIVE</div>
+                  <div style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 4 }}>of {mentions.length.toLocaleString()} mentions</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card-grid cg-2-1">
+            <div className="card card-pad-lg">
+              <div className="card-head" style={{ marginBottom: 14 }}>
+                <h3>MENTION INTELLIGENCE<Tip text="Reddit mentions AI-classified by sentiment, topics, crisis signals, and opportunity flags." /></h3>
+                <span className="meta">{filteredAnalysis.length.toLocaleString()} shown · all-time</span>
+              </div>
+              <div className="tabs" style={{ marginBottom: 14, flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                <button className={'tab ' + (analysisFilter === 'all' ? 'on' : '')} onClick={() => setAnalysisFilter('all')}>All ({mentions.length})</button>
+                <button className={'tab ' + (analysisFilter === 'positive' ? 'on' : '')} onClick={() => setAnalysisFilter('positive')}>Positive ({posCount})</button>
+                <button className={'tab ' + (analysisFilter === 'neutral' ? 'on' : '')} onClick={() => setAnalysisFilter('neutral')}>Neutral ({neutralCount})</button>
+                <button className={'tab ' + (analysisFilter === 'negative' ? 'on' : '')} onClick={() => setAnalysisFilter('negative')}>Negative ({negCount})</button>
+                <button className={'tab ' + (analysisFilter === 'crisis' ? 'on' : '')} onClick={() => setAnalysisFilter('crisis')}>Crisis ({analysisCrisisCount})</button>
+                <button className={'tab ' + (analysisFilter === 'opportunity' ? 'on' : '')} onClick={() => setAnalysisFilter('opportunity')}>Opportunity ({analysisOppCount})</button>
+              </div>
+              <input className="fld" placeholder="Search titles, text, authors, topics…" value={analysisSearch} onChange={e => setAnalysisSearch(e.target.value)} style={{ width: '100%', marginBottom: 14, boxSizing: 'border-box' }} />
+              {filteredAnalysis.length === 0 ? (
+                <div className="empty">No mentions match your filters.</div>
+              ) : (
+                <div ref={analysisContainerRef} style={{ maxHeight: 520, overflowY: 'auto' }}>
+                  {visibleAnalysis.map((m, i) => {
+                    const sent = (m.sentiment || 'neutral').toLowerCase()
+                    const leftBorderColor = sent === 'positive' ? 'var(--joola)' : sent === 'negative' ? 'var(--red)' : 'rgba(255,255,255,0.08)'
+                    const title = m.post_title?.trim() || m.content_text?.split(/\r?\n/).find(l => l.trim()) || '(no title)'
+                    return (
+                      <div key={m.id ?? i} className="comment-row" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', borderLeft: `4px solid ${leftBorderColor}`, paddingLeft: 10 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: 'var(--bg-3)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: 'var(--fg-2)' }}>
+                          {m.author ? m.author.charAt(0).toUpperCase() : '#'}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="comment-user">
+                            <span className="uname">{m.author ? `u/${m.author}` : m.reddit_post_id}</span>
+                            {m.posted_at && <span className="meta">{fmtDate(m.posted_at)}</span>}
+                            <span className="chip" style={{ fontSize: 9 }}>{m.subreddit}</span>
+                          </div>
+                          <div className="comment-body">
+                            <div className="quote" style={{ fontStyle: 'normal', fontWeight: 500 }}>
+                              {m.post_url ? (
+                                <a href={m.post_url} target="_blank" rel="noreferrer" className="tlink" style={{ fontSize: 13 }}>
+                                  {title.slice(0, 80)}{title.length > 80 ? '…' : ''}
+                                </a>
+                              ) : (
+                                <span style={{ fontSize: 13, color: 'var(--fg-2)' }}>{title.slice(0, 80)}{title.length > 80 ? '…' : ''}</span>
+                              )}
+                            </div>
+                            {m.upvotes != null && (
+                              <div style={{ fontSize: 11, color: 'var(--fg-4)', marginTop: 3 }}>▲ {m.upvotes.toLocaleString()} upvotes</div>
+                            )}
+                            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <span className={'pill ' + (SENT_PILL[sent] ?? 'pill-ghost')}>{sent}</span>
+                              {m.is_crisis && <span className="pill pill-red">⚠ CRISIS</span>}
+                              {m.is_opportunity && <span className="pill pill-green">● OPPORTUNITY</span>}
+                              {(m.topics ?? []).slice(0, 4).map(t => <span key={t} className="chip" style={{ fontSize: 10, padding: '1px 6px' }}>{t}</span>)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {analysisHasMore && (
+                    <div ref={analysisSentinelRef} style={{ padding: '10px 0', textAlign: 'center', fontSize: 11, color: 'var(--fg-4)' }}>
+                      {analysisTotal - analysisShown} more — scroll to load
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="card card-pad-lg" style={{ marginBottom: 14 }}>
+                <div className="card-head">
+                  <h3>SENTIMENT MIX<Tip text="Overall sentiment breakdown of Reddit mentions — how the community feels about JOOLA." /></h3>
+                  <span className="meta">{mentions.length.toLocaleString()} mentions · all-time</span>
+                </div>
+                <div className="donut-wrap" style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Donut data={sentimentSlices} size={140} thickness={22} />
+                  <DonutLegend data={sentimentSlices} />
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--fg-4)', marginTop: 10, lineHeight: 1.5 }}>
+                  {positivePct.toFixed(0)}% of mentions are positive —{' '}
+                  {positivePct > 60 ? 'excellent community perception' : positivePct > 40 ? 'healthy — keep engaging' : 'needs attention'}
+                </div>
+              </div>
+              <div className="card card-pad-lg">
+                <div className="card-head">
+                  <h3>TOP TOPICS<Tip text="Most discussed topics in Reddit mentions — focus more content around what buyers already care about." /></h3>
+                  <span className="meta">by frequency · all-time</span>
+                </div>
+                <HBar data={topicCounts.map(([name, value]) => ({ name, value }))} colorOf={() => 'var(--yellow)'} tipPrefix="Topic in Reddit mentions" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
