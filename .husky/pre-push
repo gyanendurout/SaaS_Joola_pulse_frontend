@@ -1,0 +1,14 @@
+#!/bin/sh
+# JOOLA Pulse — pre-push QA gate
+# Runs typecheck + Playwright smoke before every git push from this workspace repo.
+# The staging repo hooks (c:\tmp\joola-*) are installed by scripts/setup-staging-hooks.ps1
+#
+# To bypass (not recommended): git push --no-verify
+powershell.exe -ExecutionPolicy Bypass -NoProfile \
+  -File "$(pwd)/qa/regression.ps1" -SkipBuild -Continue
+EXIT=$?
+if [ $EXIT -ne 0 ]; then
+  echo ""
+  echo "Pre-push QA FAILED. Fix issues or use --no-verify to bypass."
+  exit 1
+fi

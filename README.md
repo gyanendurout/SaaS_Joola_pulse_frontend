@@ -1,8 +1,6 @@
 # JOOLA Pulse — Own-Brand Digital Intelligence
-<!-- redeploy: 2026-05-20T21:01 -->
 
-
-Next.js 14 (App Router) dashboard reading from Supabase tables (`joola_ig_*`). Designed as a single deployable unit for **Vercel** or **Railway**.
+Next.js 14 (App Router) dashboard reading from Supabase tables (`joola_ig_*`). Deployed as a single unit on **Vercel** (moved from Railway on 2026-10-03).
 
 ## Quick start (local)
 
@@ -15,12 +13,14 @@ npm run dev
 
 ## Environment variables
 
-Set these in your platform dashboard (Vercel Project Settings → Environment Variables, Railway Service → Variables).
+Set these in Vercel → Project → Settings → Environment Variables.
 
 | Key | Required | Notes |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | Public Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | **Anon/public key only.** Never put the service-role key here — `NEXT_PUBLIC_*` ships to every visitor's browser. |
+| `SEO_API_URL` | yes (prod) | Backend Vercel URL, no trailing slash. `/seo-api/:path*` rewrites to `${SEO_API_URL}/api/:path*`. Defaults to `http://localhost:8000`. |
+| `ANALYTICS_API_URL` | yes (prod) | Analytics Vercel URL. `/analytics-api/:path*` rewrites to `${ANALYTICS_API_URL}/:path*`. |
 | `SUPABASE_SERVICE_ROLE_KEY` | optional | Only used by `scripts/scrape_joola_ig.py` (Node app never reads it). |
 | `APIFY_API_TOKEN` | optional | Scraper only |
 | `OPENAI_API_KEY` | optional | Scraper only |
@@ -28,17 +28,13 @@ Set these in your platform dashboard (Vercel Project Settings → Environment Va
 ## Deploy
 
 ### Vercel
-1. Import the repo
-2. **Root Directory** → `frontend`
-3. Framework auto-detects as Next.js
+1. Import the GitHub repo `gyanendurout/SaaS_Joola_pulse_frontend` (pushed from the staging copy at `C:\tmp\joola-frontend`)
+2. **Root Directory** → repo root
+3. Framework auto-detects as Next.js (`vercel.json`)
 4. Set env vars above
-5. Deploy
+5. Deploy — later pushes to `main` auto-deploy
 
-### Railway
-1. New Project → Deploy from GitHub
-2. **Root Directory** → `frontend`
-3. `railway.json` will be picked up (`npm ci && npm run build` build, `npm run start` start)
-4. Set env vars above
+The backend and analytics services are separate Vercel projects; see `recovery/vercel-setup.md`.
 
 ## Routes
 
@@ -54,7 +50,7 @@ Set these in your platform dashboard (Vercel Project Settings → Environment Va
 
 ## Data pipeline
 
-`scripts/scrape_joola_ig.py` keeps `joola_ig_*` tables current. **Not run by Vercel/Railway** — invoke locally or from a cron worker:
+`scripts/scrape_joola_ig.py` keeps `joola_ig_*` tables current. **Not run by Vercel** — invoke locally or from a cron worker:
 
 ```bash
 python scripts/scrape_joola_ig.py
