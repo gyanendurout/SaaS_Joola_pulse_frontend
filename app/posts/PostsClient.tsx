@@ -64,6 +64,15 @@ const TYPE_PILL: Record<string, string> = {
   carousel: 'pill-info', video: 'pill-cyan',
 }
 
+const CTA_META: Record<string, { label: string; desc: string }> = {
+  visit:     { label: 'Visit Link',         desc: '"Link in bio" / "visit our site" — drives website traffic' },
+  promo:     { label: 'Promo Code',         desc: '"Use code X" or discount offer — drives purchases' },
+  tracklink: { label: 'Tracked Link',       desc: 'UTM or affiliate links — measurable click-throughs' },
+  giveaway:  { label: 'Giveaway / Contest', desc: '"Tag a friend" or "enter to win" — boosts comments & shares' },
+  none:      { label: 'No CTA',            desc: 'Pure brand content with no direct action ask' },
+  unknown:   { label: 'Other / Mixed',      desc: 'Unclassified or mixed call-to-action language' },
+}
+
 type SortKey = 'er' | 'views' | 'likes' | 'comments' | 'date' | 'quality' | 'predicted' | 'type' | 'theme' | 'vis' | 'hash'
 
 function fmtViews(v: number) {
@@ -371,7 +380,11 @@ export default function PostsClient({
                 {sortedThemeRows.map((row) => (
                   <tr key={row.theme}>
                     <td style={{ fontWeight: 600, textTransform: 'capitalize' }}>
-                      {row.theme.replace(/_/g, ' ')}
+                      {row.theme.toLowerCase() === 'unknown' ? (
+                        <span title="Posts where AI analysis hasn't assigned a content theme yet — run AI post analysis to categorize these" style={{ color: 'var(--fg-3)', fontStyle: 'italic' }}>
+                          Uncategorized
+                        </span>
+                      ) : row.theme.replace(/_/g, ' ')}
                     </td>
                     <td className="cell-num">{row.count}</td>
                     <td className="cell-num" style={{
@@ -385,25 +398,22 @@ export default function PostsClient({
                       if (!cell || cell.count === 0) {
                         return <td className="cell-num" key={t} style={{ color: 'var(--fg-4)' }}>—</td>
                       }
-                      // When posts exist for this (theme, type) but every row
-                      // has 0/null engagement_rate, the cell would render
-                      // "0.0% n=1" which is misleading — render an em-dash with
-                      // the sample count instead so users can tell there's no
-                      // ER signal vs no posts at all.
                       if (cell.avgEr === 0) {
                         return (
-                          <td className="cell-num" key={t} style={{ color: 'var(--fg-4)' }}>
+                          <td className="cell-num" key={t} style={{ color: 'var(--fg-4)' }}
+                            title={`${cell.count} ${t} post${cell.count !== 1 ? 's' : ''} — no engagement rate recorded yet`}>
                             <span>—</span>
-                            <span className="mono" style={{ marginLeft: 4, fontSize: 10 }}>n={cell.count}</span>
+                            <span className="mono" style={{ marginLeft: 4, fontSize: 10 }}>({cell.count})</span>
                           </td>
                         )
                       }
                       return (
-                        <td className="cell-num" key={t}>
+                        <td className="cell-num" key={t}
+                          title={`Avg engagement rate across ${cell.count} ${t} post${cell.count !== 1 ? 's' : ''} in this theme. E.g. ${(cell.avgEr * 100).toFixed(1)}% means ${(cell.avgEr * 100).toFixed(1)} interactions per 100 people reached.`}>
                           <span style={{ fontWeight: 600, color: cell.avgEr >= 0.06 ? 'var(--joola)' : cell.avgEr < 0.03 ? 'var(--down)' : 'var(--fg)' }}>
                             {(cell.avgEr * 100).toFixed(1)}%
                           </span>
-                          <span className="mono" style={{ marginLeft: 4, fontSize: 10, color: 'var(--fg-4)' }}>n={cell.count}</span>
+                          <span className="mono" style={{ marginLeft: 4, fontSize: 10, color: 'var(--fg-4)' }}>({cell.count})</span>
                         </td>
                       )
                     })}
@@ -420,11 +430,12 @@ export default function PostsClient({
         </div>
       </div>
 
-      {/* Athletes + Cadence (left) | CTA + Carousel + Sponsored (right) */}
+      {/* Athletes + Cadence (left 2/3) | CTA + Carousel (right 1/3) */}
       <div className="section">
-        <div className="card-grid cg-2-1">
-          <div>
-            <div className="card card-pad-lg" style={{ marginBottom: 14 }}>
+        <div className="card-grid cg-2-1" style={{ alignItems: 'start' }}>
+          {/* LEFT: wide tables */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="card card-pad-lg">
               <div className="card-head">
                 <h3>TOP ATHLETES BY ENGAGEMENT<Tip text="Which JOOLA athletes drive the most engagement when featured in posts — helps decide who to feature more often." /></h3>
                 <span className="meta">avg ER · athlete posts · {periodRange(period)}</span>
@@ -494,7 +505,7 @@ export default function PostsClient({
                             <div style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 24 }}>
                               {row.days.slice(0, 7).map((d) => (
                                 <div key={d.day}
-                                  title={`${d.day}: ${(d.avgEr * 100).toFixed(2)}% (n=${d.count})`}
+                                  title={`${d.day}: ${(d.avgEr * 100).toFixed(2)}% (${d.count} posts)`}
                                   style={{
                                     width: 14,
                                     height: ((d.avgEr / max) * 100) + '%',
@@ -516,118 +527,134 @@ export default function PostsClient({
             </div>
           </div>
 
-          <div>
-            <div className="card card-pad-lg" style={{ marginBottom: 14 }}>
+          {/* RIGHT: compact metric cards */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="card card-pad-lg">
               <div className="card-head">
-                <h3>CTA EFFECTIVENESS<Tip text="Which call-to-action phrases in your captions drive the most engagement — tells you what language motivates your audience to interact." /></h3>
+                <h3>CTA EFFECTIVENESS<Tip text="CTA = Call To Action — the phrase in a caption that tells followers what to do next (e.g. 'link in bio', 'use code JOOLA', 'tag a friend'). This shows which CTA type earns the most engagement so you can write captions that actually drive action." /></h3>
                 <span className="meta">avg ER by CTA type · {periodRange(period)}</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 10, color: 'var(--fg-4)', marginBottom: 8, lineHeight: 1.5 }}>
+                Longer bar = higher engagement. Best performer highlighted in yellow.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {(() => {
                   const max = Math.max(0.0001, ...ctaRows.map((r) => r.avgEr))
                   return ctaRows.map((r) => {
                     const erPct = (r.avgEr * 100).toFixed(2)
-                    const ctaName = r.name.replace(/_/g, ' ')
+                    const isBest = r.avgEr === max
+                    const meta = CTA_META[r.name.toLowerCase()] ?? { label: r.name.replace(/_/g, ' '), desc: '' }
                     return (
-                      <div
-                        key={r.name}
-                        className="hover-row"
-                        title={`${ctaName.toUpperCase()} — ${erPct}% avg engagement rate across ${r.count} posts using this CTA. ${r.avgEr === max ? 'This is your best-performing CTA.' : 'Compare with other CTAs above.'}`}
-                        style={{ display: 'grid', gridTemplateColumns: '90px 1fr 70px', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 4, cursor: 'help' }}
-                      >
-                        <span style={{ fontSize: 11, color: 'var(--fg-3)', textTransform: 'uppercase' }}>{ctaName}</span>
-                        <div style={{ height: 8, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
-                          <div style={{ width: ((r.avgEr / max) * 100) + '%', height: '100%', background: 'var(--joola)' }} />
+                      <div key={r.name}
+                        title={`${meta.label}: ${meta.desc}\nAvg ER: ${erPct}% across ${r.count} post${r.count !== 1 ? 's' : ''}.${isBest ? '\n★ Best-performing CTA in this period.' : ''}`}
+                        style={{ cursor: 'help' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: isBest ? 'var(--yellow)' : 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            {meta.label}{isBest && <span style={{ marginLeft: 5, fontSize: 9, fontWeight: 400 }}>★</span>}
+                          </span>
+                          <span className="mono" style={{ fontSize: 11, color: isBest ? 'var(--yellow)' : 'var(--fg-3)' }}>
+                            {erPct}%
+                          </span>
                         </div>
-                        <span className="mono" style={{ fontSize: 11, textAlign: 'right', color: 'var(--fg-2)' }}>
-                          {erPct}% · n={r.count}
-                        </span>
+                        <div style={{ height: 5, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                          <div style={{ width: ((r.avgEr / max) * 100) + '%', height: '100%', background: isBest ? 'var(--yellow)' : 'var(--joola)', borderRadius: 3 }} />
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--fg-4)', marginTop: 2 }}>{meta.desc}</div>
                       </div>
                     )
                   })
                 })()}
-                {ctaRows.length === 0 && <div className="empty" style={{ padding: '10px 0', fontSize: 11 }}>No CTA data.</div>}
-              </div>
-            </div>
-
-            <div className="card card-pad-lg" style={{ marginBottom: 14 }}>
-              <div className="card-head">
-                <h3>CAROUSEL LENGTH<Tip text="How many slides your carousel posts should have for best engagement — more slides aren't always better." /></h3>
-                <span className="meta">slides vs avg ER · {periodRange(period)}</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {(() => {
-                  const max = Math.max(0.0001, ...carouselRows.map((r) => r.avgEr))
-                  return carouselRows.map((r) => {
-                    const erPct = (r.avgEr * 100).toFixed(2)
-                    const best = r.avgEr === max
-                    return (
-                      <div
-                        key={r.name}
-                        className="hover-row"
-                        title={`Carousels with ${r.name} slides: ${erPct}% avg engagement across ${r.count} posts.${best ? ' This is your best carousel length.' : ''}`}
-                        style={{ display: 'grid', gridTemplateColumns: '60px 1fr 70px', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 4, cursor: 'help' }}
-                      >
-                        <span className="mono" style={{ fontSize: 11, color: 'var(--fg-3)' }}>{r.name} slides</span>
-                        <div style={{ height: 8, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
-                          <div style={{ width: ((r.avgEr / max) * 100) + '%', height: '100%', background: 'var(--yellow)' }} />
-                        </div>
-                        <span className="mono" style={{ fontSize: 11, textAlign: 'right', color: 'var(--fg-2)' }}>
-                          {erPct}% · n={r.count}
-                        </span>
-                      </div>
-                    )
-                  })
-                })()}
-                {carouselRows.length === 0 && <div className="empty" style={{ padding: '10px 0', fontSize: 11 }}>No carousel posts yet.</div>}
+                {ctaRows.length === 0 && <div className="empty" style={{ fontSize: 11 }}>No CTA data yet.</div>}
               </div>
             </div>
 
             <div className="card card-pad-lg">
               <div className="card-head">
-                <h3>SPONSORED vs ORGANIC<Tip text="How paid posts compare to organic content in engagement and views — tells you whether spend is delivering better results than free posts." /></h3>
-                <span className="meta">paid media ROI · {periodRange(period)}</span>
+                <h3>CAROUSEL LENGTH<Tip text="Carousel = a multi-slide Instagram post users swipe through. This shows how many slides earns the most engagement. Example: if '7–10 slides' has the longest bar, those carousels get the most likes + comments. More slides isn't always better — find your sweet spot." /></h3>
+                <span className="meta">slides vs avg ER · {periodRange(period)}</span>
               </div>
-              <div>
-                {sponsoredRows.map((r) => {
-                  const isPaid = r.name === 'sponsored'
-                  const tone = isPaid ? 'var(--yellow)' : 'var(--joola)'
-                  return (
-                    <div key={r.name} style={{ padding: '10px 0', borderBottom: '1px solid var(--line-2)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: tone }}>
-                          {r.name}
-                        </span>
-                        <span className="mono" style={{ fontSize: 11, color: 'var(--fg-4)' }}>n={r.count}</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: 18, fontSize: 12 }}>
-                        <div>
-                          <span style={{ color: 'var(--fg-4)', fontSize: 10 }}>AVG ER&nbsp;</span>
-                          <span className="mono" style={{ fontWeight: 700, color: tone }}>{(r.avgEr * 100).toFixed(2)}%</span>
-                        </div>
-                        <div>
-                          <span style={{ color: 'var(--fg-4)', fontSize: 10 }}>AVG VIEWS&nbsp;</span>
-                          <span className="mono" style={{ fontWeight: 700 }}>{fmtViews(r.avgViews)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
+              <div style={{ fontSize: 10, color: 'var(--fg-4)', marginBottom: 8 }}>
+                Yellow bar = best-performing slide count.
               </div>
-              {sponsorBrands.length > 0 && (
-                <>
-                  <div className="divider" />
-                  <div style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.1em', marginBottom: 6 }}>TOP SPONSOR BRANDS</div>
-                  {sponsorBrands.map((b) => (
-                    <div key={b.name} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12 }}>
-                      <span style={{ textTransform: 'capitalize' }}>{b.name}</span>
-                      <span className="mono" style={{ color: 'var(--fg-3)' }}>{b.count}</span>
-                    </div>
-                  ))}
-                </>
-              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {(() => {
+                  const max = Math.max(0.0001, ...carouselRows.map((r) => r.avgEr))
+                  return carouselRows.map((r) => {
+                    const erPct = (r.avgEr * 100).toFixed(2)
+                    const isBest = r.avgEr === max
+                    return (
+                      <div key={r.name}
+                        title={`${r.name}-slide carousels: avg ${erPct}% engagement across ${r.count} post${r.count !== 1 ? 's' : ''}.${isBest ? ' ★ Best-performing carousel length.' : ''}`}
+                        style={{ cursor: 'help' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <span className="mono" style={{ fontSize: 11, color: isBest ? 'var(--yellow)' : 'var(--fg-3)', fontWeight: isBest ? 700 : 400 }}>
+                            {r.name} slides{isBest && <span style={{ marginLeft: 5, fontSize: 9 }}>★</span>}
+                          </span>
+                          <span className="mono" style={{ fontSize: 11, color: isBest ? 'var(--yellow)' : 'var(--fg-3)' }}>
+                            {erPct}% <span style={{ color: 'var(--fg-4)', fontWeight: 400, fontSize: 10 }}>· {r.count} posts</span>
+                          </span>
+                        </div>
+                        <div style={{ height: 5, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                          <div style={{ width: ((r.avgEr / max) * 100) + '%', height: '100%', background: isBest ? 'var(--yellow)' : 'rgba(255,255,255,0.2)', borderRadius: 3 }} />
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+                {carouselRows.length === 0 && <div className="empty" style={{ fontSize: 11 }}>No carousel posts yet.</div>}
+              </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Sponsored vs Organic — full-width horizontal strip */}
+      <div className="section">
+        <div className="card card-pad-lg">
+          <div className="card-head">
+            <h3>SPONSORED vs ORGANIC<Tip text="How paid/sponsored posts compare to organic content in engagement and reach — tells you whether ad spend is delivering better results than free posts." /></h3>
+            <span className="meta">paid media ROI · {periodRange(period)}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(1, sponsoredRows.length)}, 1fr)`, gap: 16 }}>
+            {sponsoredRows.map((r) => {
+              const isPaid = r.name === 'sponsored'
+              const tone = isPaid ? 'var(--yellow)' : 'var(--joola)'
+              return (
+                <div key={r.name} style={{ padding: '14px 16px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: tone }}>
+                      {isPaid ? 'Sponsored (Paid)' : 'Organic (Unpaid)'}
+                    </span>
+                    <span className="mono" style={{ fontSize: 11, color: 'var(--fg-4)' }}>{r.count} posts</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 32 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: 'var(--fg-4)', marginBottom: 2 }}>AVG ENGAGEMENT RATE</div>
+                      <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: tone }}>{(r.avgEr * 100).toFixed(2)}%</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: 'var(--fg-4)', marginBottom: 2 }}>AVG VIEWS</div>
+                      <div className="mono" style={{ fontSize: 20, fontWeight: 700 }}>{fmtViews(r.avgViews)}</div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          {sponsorBrands.length > 0 && (
+            <>
+              <div className="divider" style={{ margin: '14px 0 10px' }} />
+              <div style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.1em', marginBottom: 8 }}>TOP SPONSOR BRANDS</div>
+              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                {sponsorBrands.map((b) => (
+                  <div key={b.name} style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ textTransform: 'capitalize' }}>{b.name}</span>
+                    <span className="mono" style={{ color: 'var(--fg-4)' }}>{b.count} posts</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
